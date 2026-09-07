@@ -6,7 +6,7 @@ Status: needs-info
 Depends-on: [10c, 20c]
 Owner: Claude loop proof agent
 Needs: A verified pre-admission bound on cumulative input and output for an installed Claude Code invocation, supplied by the runtime integration maintainer. Jeff owns any proposed change to this packet's hard token policy. The installed CLI has no documented bound that satisfies it.
-Scope: Run one Claude Code proof using the deterministic implementation accepted in 20c. Complete three healthy iterations and two isolated fault runs within 100,000 reported tokens. Do not run Codex parity, a GUI, an Agent-Native server, a new scheduler, or a paid API key.
+Scope: Run one Claude Code proof using the deterministic implementation frozen and source-reviewed under 20c. Complete three healthy iterations and two isolated fault runs within 100,000 reported tokens. Do not run Codex parity, a GUI, an Agent-Native server, a new scheduler, or a paid API key.
 Verification-kind: runtime
 Timebox: One context window. Stop after three healthy iterations and both fault runs, or at a stop condition, and write the receipt.
 
@@ -35,7 +35,15 @@ are in the paper's PDF appendix A.2 (arXiv 2609.01481v1, pages 22 to 25). The
 HTML omits them. The Fusepoint repository (`Flesymeb/fusepoint`, branch
 `gameloop`, `.gameloop/receipts/`) supplies the reference record shapes.
 
-Packet 20c implements the runtime-neutral role, transition, and receipt
+Packet 20c's [accepted preparation receipt](../receipts/20c-headless-loop-preparation.md)
+records per-stage bindings, explicit acceptance, and two independently checked
+62-test strict offline passes. Its dependency is complete. Packet 20a retains
+the separate pre-admission token-bound prerequisite above.
+The [workflow input contract](20c-headless-loop-preparation.md#workflow-input)
+defines the required configuration files for the commands below. Bind native
+session references before starting a run. Prove the selected adapter creates
+or resumes only that session and rejects identity mismatches.
+The implementation defines the runtime-neutral role, transition, and receipt
 interface in `tools/hoh/protocol.py`. Habitat has Claude Code `2.1.241`. The Claude adapter
 maps only capabilities verified from that installed CLI onto the interface.
 Record the version, model, subscription, and exact live-preflight flags. Do not
@@ -222,6 +230,12 @@ manifest hashes in the tracked 20a receipt.
 The private baseline, candidate worktrees, detailed receipts, and CLI output
 are runtime outputs. Do not commit them as product source.
 
+The owner's [multi-agent phase decision](../design.md#multi-agent-phase-decision-2026-09-06)
+also requires different runtimes within one workflow. This single-runtime proof
+and 20b's parity run establish baseline behavior only. Before closing the parity
+work, prepare its bounded mixed-stage continuation with explicit session and
+handoff evidence; do not call separate Claude and Codex runs mixed-stage acceptance.
+
 ## Required 20b continuation
 
 Before 20a closes, create packet 20b with `Parent: 20`, `Depends-on: [20a]`,
@@ -273,10 +287,10 @@ findmnt -T /tmp/vivary-hoh-proof -o TARGET,SOURCE,FSTYPE,OPTIONS
 findmnt -T /opt/vivary-hoh-source -o TARGET,SOURCE,FSTYPE,OPTIONS
 python tools/tests/test_hoh_loop.py
 python tools/tests/test_hoh_codex.py
-python tools/hoh_loop.py --project /tmp/vivary-hoh-proof/20b/codex/healthy/project --iterations 3 --runtime codex --receipt-dir /tmp/vivary-hoh-proof/20b/codex/healthy/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20b/usage.json
+python tools/hoh_loop.py --project /tmp/vivary-hoh-proof/20b/codex/healthy/project --iterations 3 --workflow /tmp/vivary-hoh-proof/20b/codex/healthy/workflow.json --run-id codex-healthy --receipt-dir /tmp/vivary-hoh-proof/20b/codex/healthy/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20b/usage.json
 python -m unittest discover -s /tmp/vivary-hoh-proof/20b/codex/healthy/project/tests -p 'test_*.py'
-python tools/tests/hoh_fault_probe.py resume --runtime codex --project /tmp/vivary-hoh-proof/20b/codex/resume-fault/project --receipt-dir /tmp/vivary-hoh-proof/20b/codex/resume-fault/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20b/usage.json
-python tools/tests/hoh_fault_probe.py regression --runtime codex --project /tmp/vivary-hoh-proof/20b/codex/regression-fault/project --receipt-dir /tmp/vivary-hoh-proof/20b/codex/regression-fault/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20b/usage.json
+python tools/tests/hoh_fault_probe.py resume --workflow /tmp/vivary-hoh-proof/20b/codex/resume-fault/workflow.json --run-id codex-resume-fault --project /tmp/vivary-hoh-proof/20b/codex/resume-fault/project --receipt-dir /tmp/vivary-hoh-proof/20b/codex/resume-fault/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20b/usage.json
+python tools/tests/hoh_fault_probe.py regression --workflow /tmp/vivary-hoh-proof/20b/codex/regression-fault/workflow.json --run-id codex-regression-fault --project /tmp/vivary-hoh-proof/20b/codex/regression-fault/project --receipt-dir /tmp/vivary-hoh-proof/20b/codex/regression-fault/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20b/usage.json
 ```
 
 The resume probe must continue from the same committed developer checkpoint or
@@ -394,7 +408,7 @@ findmnt -T /opt/vivary-hoh-source -o TARGET,SOURCE,FSTYPE,OPTIONS
 Run the healthy proof and the completed candidate's product tests:
 
 ```console
-python tools/hoh_loop.py --project /tmp/vivary-hoh-proof/20a/claude/healthy/project --iterations 3 --runtime claude --receipt-dir /tmp/vivary-hoh-proof/20a/claude/healthy/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20a/usage.json
+python tools/hoh_loop.py --project /tmp/vivary-hoh-proof/20a/claude/healthy/project --iterations 3 --workflow /tmp/vivary-hoh-proof/20a/claude/healthy/workflow.json --run-id claude-healthy --receipt-dir /tmp/vivary-hoh-proof/20a/claude/healthy/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20a/usage.json
 python -m unittest discover -s /tmp/vivary-hoh-proof/20a/claude/healthy/project/tests -p 'test_*.py'
 ```
 
@@ -403,8 +417,8 @@ stops after a committed developer checkpoint for resume and injects one known
 candidate fault before the QA freeze for regression. Run:
 
 ```console
-python tools/tests/hoh_fault_probe.py resume --runtime claude --project /tmp/vivary-hoh-proof/20a/claude/resume-fault/project --receipt-dir /tmp/vivary-hoh-proof/20a/claude/resume-fault/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20a/usage.json
-python tools/tests/hoh_fault_probe.py regression --runtime claude --project /tmp/vivary-hoh-proof/20a/claude/regression-fault/project --receipt-dir /tmp/vivary-hoh-proof/20a/claude/regression-fault/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20a/usage.json
+python tools/tests/hoh_fault_probe.py resume --workflow /tmp/vivary-hoh-proof/20a/claude/resume-fault/workflow.json --run-id claude-resume-fault --project /tmp/vivary-hoh-proof/20a/claude/resume-fault/project --receipt-dir /tmp/vivary-hoh-proof/20a/claude/resume-fault/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20a/usage.json
+python tools/tests/hoh_fault_probe.py regression --workflow /tmp/vivary-hoh-proof/20a/claude/regression-fault/workflow.json --run-id claude-regression-fault --project /tmp/vivary-hoh-proof/20a/claude/regression-fault/project --receipt-dir /tmp/vivary-hoh-proof/20a/claude/regression-fault/receipts --iteration-timeout-seconds 3600 --reported-token-budget 100000 --usage-ledger /tmp/vivary-hoh-proof/20a/usage.json
 ```
 
 Record each invocation, checkpoint, injected hash, usage sample, and result in
@@ -446,3 +460,7 @@ them.
 - 2026-09-06: Review tightened the expected-red starter oracle, planner isolation, tests-only fault probe, usage ceiling, and durable evidence handoff. No runtime implementation started.
 - 2026-09-06: PR #335 review required pre-admission token reservations and credential isolation. The installed Claude CLI has no documented whole-invocation token bound, so live calls remain stopped and this packet needs that concrete capability or an approved policy alternative. Offline tools and subscription authentication passed. The execution contract permits independent available work.
 - 2026-09-06: Packet 20c owns claimable deterministic preparation while only this live proof remains blocked. Export checks now bind every actual archive, manifest, and temporary output path before writing it.
+- 2026-09-06: Packet 20c froze its implementation and closed its independent
+  source findings, but its strict Habitat acceptance remains `needs-info` after
+  repeated wall-clock reversals. Packet 20a keeps its own distinct
+  pre-admission token-bound prerequisite and does not start while 20c is open.

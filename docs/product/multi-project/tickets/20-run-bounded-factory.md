@@ -45,3 +45,21 @@ they do not prove the behavior above.
 
 - 2026-09-06: The [PR #334 correction receipt](../receipts/pr-334-review-fixes.md) separates the runtime proofs into bounded packets. [20a](../packets/20a-headless-loop-proof.md) owns the first proof and must prepare its parity continuation before closing. Full factory and cross-runtime acceptance remain open.
 - 2026-09-06: [20c](../packets/20c-headless-loop-preparation.md) keeps deterministic proof preparation claimable while 20a lacks its required native-call budget capability. Only 20a's live execution is blocked; preparation cannot establish runtime acceptance.
+- 2026-09-06: Packet 20c froze the deterministic source and closed its six
+  independent review findings. Its strict Habitat acceptance remains
+  `needs-info` after repeated wall-clock reversals, so no live-runtime or
+  factory behavior is accepted.
+- 2026-09-06: The [multi-agent phase decision](../design.md#multi-agent-phase-decision-2026-09-06)
+  requires distinct stage agents, per-stage runtime choice, and deterministic
+  completion and handoff. Packet 20c owns the offline implementation gaps;
+  mixed-stage native behavior requires separate evidence beyond parity runs.
+
+- 2026-09-07: Packet 20c adds stage assignments, completion gates, durable handoffs,
+  and shared usage/replay controls. Its independently reviewed source passed two
+  18-test Habitat control waves. Full runtime acceptance awaits a stable clock.
+
+- 2026-09-07: Owner-requested [20d](../packets/20d-process-environment-maintenance.md) repairs process and environment setup independently of 20c runtime acceptance.
+
+- 2026-09-07: 20d completed process cleanup and executed dependency/build checks plus Windows clock repair and a clean Habitat clock preflight. 20c is ready for a strict acceptance attempt. Factory acceptance remains open.
+
+- 2026-09-07: 20c completed the strict offline lifecycle and independent QA, with two 62-test passes and regression/restart corrections. Evidence and cleanup are recorded in its receipt. 20a remains blocked only on its live-call token bound; factory behavior remains unaccepted.
