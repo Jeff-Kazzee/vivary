@@ -59,6 +59,8 @@ def normalize_claude_usage(raw: object, *, command_complete: bool) -> dict[str, 
 class ClaudeAdapter:
     """Invoke only a verified installed CLI after all 20a admission facts pass."""
 
+    runtime_id = "claude"
+
     def __init__(
         self,
         *,

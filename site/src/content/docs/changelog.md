@@ -36,14 +36,16 @@ patch. Published registry versions remain unchanged.
   indirection, and runs with its regression suite in both Ubuntu and governed Windows
   CI jobs. This is maintainer navigation over current sources; it adds no runtime
   behavior or package release.
-- The multi-project program records the subscribed-runtime adapter direction
-  and its shared role/receipt acceptance. The first headless loop proof and
-  its required Codex parity continuation use separate bounded packets and
-  isolated copies of one recorded fixture baseline. Packet 20c now has frozen
-  deterministic source and a closed independent source review. Its strict Habitat
-  acceptance remains held after repeated wall-clock reversals, while live calls
-  also require a verified invocation budget bound. Neither runtime proof nor
-  product integration is complete, and package versions remain unchanged.
+- The offline headless-loop coordinator selects a runtime, assigned agent, and
+  session reference per stage. Explicit completion gates and durable artifact
+  handoffs govern planner, developer, and QA transitions. One usage ledger
+  survives retries and replay.
+
+  Independent source review and two 18-test control waves passed in offline
+  Habitat. Full lifecycle acceptance remains held by the unresolved clock
+  prerequisite. Live runtime calls also require an
+  enforceable token bound. This is preparation under packet 20c. Native session
+  enforcement, factory integration, and package release remain unaccepted.
 - Packet 12a defines trusted root/VCS observations and expected refusal
   oracles for access grants, root replacement, and Git/Jujutsu administration.
   The synthetic registry contract and validator bind private Jujutsu repository

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from hoh.protocol import (
+    BindingError,
     BudgetError,
     DeadlineError,
     EVIDENCE_SCHEMA,
@@ -32,12 +33,14 @@ from hoh.protocol import (
     TRANSITION_SCHEMA,
     UsageLedger,
     _atomic_json_write,
+    _exclusive_file_lock,
     validate_evidence_record,
     validate_receipt_record,
     validate_role_request,
     validate_role_result,
     validate_transition_record,
 )
+from hoh.workflow import REQUIREMENT_IDS, Workflow, evaluate_phase, record_hash
 
 
 class HarnessError(RuntimeError):
@@ -415,6 +418,8 @@ class RoleView:
 
 
 class RoleAdapter(Protocol):
+    runtime_id: str
+
     def maximum_charge(self, role: str) -> int | None: ...
 
     def invoke(
@@ -429,6 +434,7 @@ class RoleAdapter(Protocol):
 @dataclass(frozen=True)
 class RunFault:
     interrupt_after_developer: bool = False
+    interrupt_before_developer_state: bool = False
     interrupt_after_iteration: int | None = None
     regress_before_qa: Callable[[Path], None] | None = None
 
@@ -447,7 +453,8 @@ class HeadlessLoop:
         iteration_timeout_seconds: float,
         reported_token_budget: int,
         usage_ledger: Path,
-        adapter: RoleAdapter,
+        workflow: dict[str, Any],
+        adapters: dict[str, RoleAdapter],
     ):
         if iterations < 1:
             raise HarnessError("iterations must be positive")
@@ -460,8 +467,8 @@ class HeadlessLoop:
         self.reported_token_budget = reported_token_budget
         self.usage_ledger_path = Path(usage_ledger).absolute()
         self.ledger = UsageLedger(self.usage_ledger_path, reported_token_budget)
-        self.adapter = adapter
-        self.receipts = ReceiptStore(receipt_dir, run_id)
+        self.workflow = Workflow(workflow, run_id=run_id, iterations=iterations, adapters=adapters)
+        self.receipt_dir.mkdir(parents=True, exist_ok=True)
         self.state_path = receipt_dir / "state.json"
         self.baseline_path = receipt_dir / "baseline.json"
         self.views = receipt_dir / "role-views"
@@ -490,6 +497,7 @@ class HeadlessLoop:
         except (OSError, json.JSONDecodeError) as error:
             raise HarnessError(f"run state is unreadable: {error}") from error
         expected = {
+            "workflow_sha256",
             "run_id",
             "iteration",
             "stage",
@@ -509,6 +517,7 @@ class HeadlessLoop:
             raise HarnessError("run state is stale or crosses runs")
         if (
             state["usage_ledger_path"] != str(self.usage_ledger_path)
+            or state["workflow_sha256"] != self.workflow.sha256
             or state["reported_token_budget"] != self.reported_token_budget
             or state["iteration_timeout_seconds"] != self.iteration_timeout_seconds
             or state["iterations"] != self.iterations
@@ -522,6 +531,8 @@ class HeadlessLoop:
             != str(self.receipt_dir / f"iteration-{state['iteration']}-deadline.json")
         ):
             raise HarnessError("resume iteration or deadline path differs")
+        recovered = self._recover_developer_state(state)
+        state = recovered or state
         ledger_hash = sha256_file(self.usage_ledger_path) if self.usage_ledger_path.is_file() else None
         if state["usage_ledger_sha256"] != ledger_hash:
             raise HarnessError("resume usage ledger is missing or differs")
@@ -538,15 +549,43 @@ class HeadlessLoop:
             raise HarnessError("resume previous-candidate binding differs")
         self._verify_state_receipt_stage(state)
         self._verify_receipt_baseline_bindings()
+        self._verify_workflow_receipts()
         if state["stage"] == "developer_complete":
             self._verify_developer_resume_artifacts(state)
+        if recovered is not None:
+            _atomic_json_write(self.state_path, state)
         return state
+
+    def _recover_developer_state(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        """Finish only the accepted developer receipt's interrupted state write."""
+        last = self.receipts.last_payload
+        if (state["stage"] != "iteration_started" or last is None
+                or (last["iteration"], last["stage"], last["status"])
+                != (state["iteration"], "developer", "complete")):
+            return None
+        control = last["details"].get("control_transition", {})
+        if (self.usage_ledger_path.is_symlink() or not self.usage_ledger_path.is_file()
+                or control.get("prior_state_sha256") != sha256_file(self.state_path)
+                or control.get("usage_ledger_sha256") != sha256_file(self.usage_ledger_path)):
+            raise HarnessError("developer recovery control or usage binding differs")
+        self._verify_receipt_baseline_bindings()
+        self._verify_workflow_receipts()
+        self._consume_handoff(self.workflow.binding(state["iteration"], "qa"))
+        return {
+            **state,
+            "stage": "developer_complete",
+            "candidate_sha256": last["bindings"]["candidate_sha256"],
+            "checkpoint_commit": last["bindings"]["developer_checkpoint"],
+            "receipt_chain_head": self.receipts.head,
+            "usage_ledger_sha256": control["usage_ledger_sha256"],
+        }
 
     def _verify_receipt_baseline_bindings(self) -> None:
         expected = {
             "baseline_sha256": self.baseline_sha256,
             "baseline_commit": self.baseline_commit,
             "baseline_tree": self.baseline_tree,
+            "workflow_sha256": self.workflow.sha256,
         }
         for path in sorted(self.receipts.details.glob("*.json")):
             bindings = validate_receipt_record(
@@ -605,6 +644,7 @@ class HeadlessLoop:
             self.state_path,
             {
                 "run_id": self.run_id,
+                "workflow_sha256": self.workflow.sha256,
                 "iteration": iteration,
                 "stage": stage,
                 "candidate_sha256": hash_tree(self.project),
@@ -660,7 +700,8 @@ class HeadlessLoop:
             },
             "iteration_complete": {("qa", "complete")},
             "regressed": {("qa", "regressed")},
-            "failed": {("iteration", "failed"), ("test", "incomplete")},
+            "failed": {("iteration", "failed"), ("test", "incomplete"),
+                       ("planner", "failed"), ("developer", "failed"), ("qa", "failed")},
             "final_complete": {("iteration", "complete")},
         }
         if state["stage"] not in expected or (last["stage"], last["status"]) not in expected[state["stage"]]:
@@ -668,6 +709,7 @@ class HeadlessLoop:
 
     def _bindings(self, iteration: int, candidate: str, **extra: Any) -> dict[str, Any]:
         return {
+            "workflow_sha256": self.workflow.sha256,
             "baseline_sha256": self.baseline_sha256,
             "baseline_commit": self.baseline_commit,
             "baseline_tree": self.baseline_tree,
@@ -735,6 +777,152 @@ class HeadlessLoop:
             raise HarnessError(f"unresolved prompt slots: {unresolved}")
         return rendered
 
+    def _receipt_payloads(self) -> list[dict[str, Any]]:
+        return [
+            validate_receipt_record(json.loads(path.read_text(encoding="utf-8")))["payload"]
+            for path in sorted(self.receipts.details.glob("*.json"))
+        ]
+
+    def _consume_handoff(self, binding: dict[str, Any]) -> str | None:
+        handoffs = []
+        for payload in self._receipt_payloads():
+            if payload["status"] in {"failed", "regressed"} or (payload["stage"] == "test" and payload["status"] == "incomplete"):
+                raise HarnessError("workflow stopped before this predecessor handoff could be consumed")
+            handoff = payload["details"].get("handoff")
+            if handoff is not None:
+                self.workflow.validate_handoff(handoff)
+                if handoff["successor"] == binding:
+                    if payload["status"] != "complete":
+                        raise HarnessError("handoff predecessor was not accepted")
+                    handoffs.append(handoff)
+        if binding["iteration"] == 1 and binding["role"] == "planner":
+            if handoffs:
+                raise HarnessError("initial planner cannot consume a successor handoff")
+            return None
+        if len(handoffs) != 1:
+            raise HarnessError("accepted predecessor handoff is missing or repeated")
+        handoff = handoffs[0]
+        self._verify_handoff_artifacts(handoff)
+        return record_hash(handoff)
+
+    def _verify_handoff_artifacts(self, handoff: dict[str, Any]) -> None:
+        self.workflow.validate_handoff(handoff)
+        artifacts = handoff["artifacts"]
+        if artifacts["candidate_sha256"] != hash_tree(self.project) or artifacts["checkpoint_commit"] != self._git_value("rev-parse", "HEAD"):
+            raise HarnessError("accepted handoff candidate revision differs")
+        predecessor_iteration = handoff["predecessor"]["iteration"]
+        suffixes = {
+            "development_document_sha256": "development",
+            "developer_report_sha256": "developer",
+            "qa_evidence_report_sha256": "evidence",
+        }
+        for field, suffix in suffixes.items():
+            if field in artifacts:
+                path = self.documents / f"iteration-{predecessor_iteration}-{suffix}.md"
+                if path.is_symlink() or not path.is_file() or sha256_file(path) != artifacts[field]:
+                    raise HarnessError(f"accepted handoff artifact differs: {field}")
+        if "test_evidence_sha256" in artifacts:
+            evidence = [
+                payload["details"].get("evidence") for payload in self._receipt_payloads()
+                if payload["iteration"] == predecessor_iteration and payload["stage"] == "test"
+            ]
+            if not evidence or record_hash(evidence[-1]) != artifacts["test_evidence_sha256"]:
+                raise HarnessError("accepted handoff test evidence differs")
+
+    def _verify_workflow_receipts(self) -> None:
+        claims: dict[tuple[str, int], dict[str, Any]] = {}
+        handoffs: dict[str, dict[str, Any]] = {}
+        accepted_stages: set[str] = set()
+        reservations = self.ledger.snapshot()["reservations"]
+        for payload in self._receipt_payloads():
+            details = payload["details"]
+            request = details.get("dispatch")
+            if request is not None:
+                request = validate_role_request(request)
+                binding = request["binding"]
+                if binding != self.workflow.binding(request["iteration"], request["role"]):
+                    raise HarnessError("persisted dispatch identity differs")
+                key = (binding["stage_id"], request["attempt"])
+                call_id = f"{self.run_id}-{request['iteration']}-{request['role']}-{request['attempt']}"
+                if key in claims or details.get("call_id") != call_id or call_id not in reservations:
+                    raise HarnessError("persisted dispatch or its reservation is missing or repeated")
+                if details.get("maximum") != reservations[call_id]["maximum"]:
+                    raise HarnessError("persisted dispatch reservation differs")
+                if request["attempt"] == 2 and (binding["stage_id"], 1) not in claims:
+                    raise HarnessError("persisted schema retry has no first attempt")
+                if request["role"] != "planner" or request["iteration"] != 1:
+                    predecessor = handoffs.get(request["handoff_sha256"])
+                    if predecessor is None or predecessor["successor"] != binding:
+                        raise HarnessError("persisted dispatch has no accepted predecessor")
+                elif request["handoff_sha256"] is not None:
+                    raise HarnessError("initial dispatch has a predecessor")
+                claims[key] = request
+            handoff = details.get("handoff")
+            if handoff is None:
+                continue
+            self.workflow.validate_handoff(handoff)
+            source = handoff["predecessor"]
+            key = (source["stage_id"], handoff["attempt"])
+            if source["stage_id"] in accepted_stages or details.get("role_request") != claims.get(key):
+                raise HarnessError("phase decision has a missing or repeated dispatch")
+            if details.get("phase_gate") != handoff["gate"] or payload["stage"] != source["role"] or payload["iteration"] != source["iteration"]:
+                raise HarnessError("phase decision differs from its receipt")
+            result = validate_role_result(details.get("role_result"), request=claims[key])
+            if result["request_sha256"] != record_hash(claims[key]):
+                raise HarnessError("persisted phase response binding differs")
+            if handoff["gate"]["decision"] == "blocked":
+                if payload["status"] not in {"failed", "regressed"}:
+                    raise HarnessError("blocked phase is marked accepted")
+                continue
+            if payload["status"] != "complete":
+                raise HarnessError("accepted phase receipt is incomplete")
+            call_id = f"{self.run_id}-{source['iteration']}-{source['role']}-{handoff['attempt']}"
+            reservation = reservations[call_id]
+            if reservation["status"] != "settled" or reservation["usage"] != result["usage"]:
+                raise HarnessError("accepted phase usage differs from shared accounting")
+            accepted_stages.add(source["stage_id"])
+            handoffs[record_hash(handoff)] = handoff
+
+    def _phase_details(
+        self, result: dict[str, Any], gate: dict[str, Any], candidate: str,
+        *, evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        role, iteration = result["role"], result["iteration"]
+        artifacts = {
+            "candidate_sha256": candidate,
+            "checkpoint_commit": self._git_value("rev-parse", "HEAD"),
+            "development_document_sha256": sha256_file(self.documents / f"iteration-{iteration}-development.md"),
+        }
+        if role in {"developer", "qa"}:
+            artifacts["developer_report_sha256"] = sha256_file(self.documents / f"iteration-{iteration}-developer.md")
+        if role == "qa":
+            artifacts["qa_evidence_report_sha256"] = sha256_file(self.documents / f"iteration-{iteration}-evidence.md")
+            artifacts["test_evidence_sha256"] = record_hash(evidence)
+        return {
+            "role_request": result["_request"],
+            "role_result": {key: value for key, value in result.items() if not key.startswith("_")},
+            "role_result_sha256": result["output_sha256"],
+            "phase_gate": gate,
+            "handoff": self.workflow.handoff(gate, artifacts),
+            "opened_receipt_files": [path for path in result["_opened_files"] if path.startswith("receipts/")],
+        }
+
+    def _reject_phase(
+        self, result: dict[str, Any], gate: dict[str, Any], candidate: str,
+        deadline: IterationDeadline, *, evidence: dict[str, Any] | None = None,
+    ) -> None:
+        self._append(
+            result["iteration"], result["role"], "failed", candidate,
+            self._phase_details(result, gate, candidate, evidence=evidence),
+        )
+        state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self._save_state(
+            result["iteration"], "failed", deadline.path,
+            previous_candidate_sha256=state["previous_candidate_sha256"],
+            no_progress_count=state["no_progress_count"],
+        )
+        raise HarnessError(f"{result['role']} completion gate rejected: {', '.join(gate['reasons'])}")
+
     def _role_call(
         self,
         role: str,
@@ -743,8 +931,16 @@ class HeadlessLoop:
         view: RoleView,
         deadline: IterationDeadline,
         candidate: str,
+        test_evidence_sha256: str | None = None,
     ) -> dict[str, Any]:
         self._verify_fixed_inputs()
+        binding = self.workflow.binding(iteration, role)
+        adapter = self.workflow.adapter(iteration, role)
+        handoff_hash = self._consume_handoff(binding)
+        for payload in self._receipt_payloads():
+            claim = payload["details"].get("dispatch")
+            if claim is not None and claim["binding"]["stage_id"] == binding["stage_id"]:
+                raise HarnessError("stage already dispatched; reconcile its native result before any replay")
         if role == "developer":
             projected_candidate = view.root / "candidate" / "linkcheck.py"
             if (
@@ -761,7 +957,7 @@ class HeadlessLoop:
             if view.writable_root is not None
             else None
         )
-        maximum = self.adapter.maximum_charge(role)
+        maximum = adapter.maximum_charge(role)
         for attempt in (1, 2):
             deadline.remaining()
             call_id = f"{self.run_id}-{iteration}-{role}-{attempt}"
@@ -772,6 +968,10 @@ class HeadlessLoop:
                     "run_id": self.run_id,
                     "iteration": iteration,
                     "role": role,
+                    "binding": binding,
+                    "attempt": attempt,
+                    "handoff_sha256": handoff_hash,
+                    "test_evidence_sha256": test_evidence_sha256,
                     "prompt_bytes": len(prompt.encode("utf-8")),
                     "prompt_sha256": sha256_bytes(prompt.encode("utf-8")),
                     "baseline_sha256": self.baseline_sha256,
@@ -783,8 +983,13 @@ class HeadlessLoop:
                 }
             )
             request_hash = sha256_bytes(canonical_json_bytes(request))
+            self._append(
+                iteration, role, "started", candidate,
+                {"dispatch": request, "call_id": call_id, "maximum": maximum},
+                assembled_prompt_sha256=request["prompt_sha256"],
+            )
             try:
-                raw = self.adapter.invoke(request, prompt, view, deadline)
+                raw = adapter.invoke(request, prompt, view, deadline)
             except Exception as error:
                 try:
                     self.ledger.settle(call_id, self._incomplete_usage(error))
@@ -840,8 +1045,6 @@ class HeadlessLoop:
                     raise ProtocolError("role result request hash differs")
                 if result["output_sha256"] != sha256_bytes(result["output_text"].encode("utf-8")):
                     raise ProtocolError("role result output hash differs")
-                if not result["complete"]:
-                    raise ProtocolError("role result has incomplete usage")
             except ProtocolError as error:
                 try:
                     self.ledger.settle(call_id, self._incomplete_usage(raw))
@@ -860,6 +1063,8 @@ class HeadlessLoop:
                     assembled_prompt_sha256=request["prompt_sha256"],
                 )
                 self._refresh_state_after_role_failure(iteration, deadline.path)
+                if isinstance(error, BindingError):
+                    raise HarnessError(f"{role} identity mismatch; refuse retry") from error
                 if (
                     writable_before is not None
                     and hash_tree(view.root / view.writable_root) != writable_before
@@ -1027,8 +1232,18 @@ class HeadlessLoop:
             != last_qa["bindings"].get("frozen_candidate_after_sha256")
         ):
             raise HarnessError("terminal test, candidate, or QA binding differs")
+        handoff = last_qa["details"].get("handoff")
+        self.workflow.validate_handoff(handoff)
+        if handoff["gate"]["decision"] != "complete" or handoff["artifacts"]["candidate_sha256"] != candidate_sha256:
+            raise HarnessError("terminal state lacks an accepted final phase gate")
+        self._verify_handoff_artifacts(handoff)
 
     def run(self, fault: RunFault | None = None) -> dict[str, Any]:
+        with _exclusive_file_lock(self.receipt_dir / "run.lock"):
+            self.receipts = ReceiptStore(self.receipt_dir, self.run_id)
+            return self._run(fault)
+
+    def _run(self, fault: RunFault | None = None) -> dict[str, Any]:
         fault = fault or RunFault()
         new_baseline = not self.baseline_path.exists()
         self._ensure_git()
@@ -1050,10 +1265,12 @@ class HeadlessLoop:
                 "reported_token_budget",
                 "iteration_timeout_seconds",
                 "iterations",
+                "workflow_sha256",
             }:
                 raise HarnessError("baseline binding shape differs")
             if (
                 baseline["run_id"] != self.run_id
+                or baseline["workflow_sha256"] != self.workflow.sha256
                 or baseline["common"] != self.common
                 or baseline["usage_ledger_path"] != str(self.usage_ledger_path)
                 or baseline["reported_token_budget"] != self.reported_token_budget
@@ -1072,6 +1289,7 @@ class HeadlessLoop:
                 self.baseline_path,
                 {
                     "run_id": self.run_id,
+                    "workflow_sha256": self.workflow.sha256,
                     "baseline_sha256": current,
                     "baseline_commit": self.baseline_commit,
                     "baseline_tree": self.baseline_tree,
@@ -1172,22 +1390,19 @@ class HeadlessLoop:
                 )
                 before = hash_tree(self.project)
                 planner = self._role_call("planner", iteration, planner_prompt, planner_view, deadline, before)
-                if hash_tree(self.project) != before:
-                    raise HarnessError("planner changed candidate state")
                 development_path.write_text(planner["output_text"], encoding="utf-8")
+                planner_gate = evaluate_phase(
+                    planner["_request"], planner, iterations=self.iterations,
+                    candidate_unchanged=hash_tree(self.project) == before,
+                )
+                if planner_gate["decision"] == "blocked":
+                    self._reject_phase(planner, planner_gate, before, deadline)
                 self._append(
                     iteration,
                     "planner",
                     "complete",
                     before,
-                    {
-                        "role_request": planner["_request"],
-                        "role_result": {key: value for key, value in planner.items() if not key.startswith("_")},
-                        "role_result_sha256": planner["output_sha256"],
-                        "opened_receipt_files": [
-                            path for path in planner["_opened_files"] if path.startswith("receipts/")
-                        ],
-                    },
+                    self._phase_details(planner, planner_gate, before),
                     development_document_sha256=sha256_file(development_path),
                     assembled_prompt_sha256=sha256_bytes(planner_prompt.encode("utf-8")),
                 )
@@ -1210,9 +1425,18 @@ class HeadlessLoop:
                     {"development_document": development_path.read_text(encoding="utf-8")},
                 )
                 developer = self._role_call("developer", iteration, developer_prompt, developer_view, deadline, before)
-                developer_view.export_writable(self.project, {"linkcheck.py"})
                 developer_report_path = self.documents / f"iteration-{iteration}-developer.md"
                 developer_report_path.write_text(developer["output_text"], encoding="utf-8")
+                developer_candidate = developer_view.root / "candidate"
+                developer_gate = evaluate_phase(
+                    developer["_request"], developer, iterations=self.iterations,
+                    candidate_unchanged=hash_tree(self.project) == before,
+                    developer_source=developer_view.read_text("candidate/linkcheck.py"),
+                    developer_files={path.relative_to(developer_candidate).as_posix() for path in developer_candidate.rglob("*") if path.is_file()},
+                )
+                if developer_gate["decision"] == "blocked":
+                    self._reject_phase(developer, developer_gate, before, deadline)
+                developer_view.export_writable(self.project, {"linkcheck.py"})
                 after = hash_tree(self.project)
                 transition = validate_transition_record(
                     {
@@ -1233,19 +1457,20 @@ class HeadlessLoop:
                     "complete",
                     after,
                     {
-                        "role_request": developer["_request"],
-                        "role_result": {key: value for key, value in developer.items() if not key.startswith("_")},
-                        "role_result_sha256": developer["output_sha256"],
+                        **self._phase_details(developer, developer_gate, after),
                         "transition": transition,
-                        "opened_receipt_files": [
-                            path for path in developer["_opened_files"] if path.startswith("receipts/")
-                        ],
+                        "control_transition": {
+                            "prior_state_sha256": sha256_file(self.state_path),
+                            "usage_ledger_sha256": sha256_file(self.usage_ledger_path),
+                        },
                     },
                     development_document_sha256=sha256_file(development_path),
                     developer_report_sha256=sha256_file(developer_report_path),
                     developer_checkpoint=checkpoint,
                     assembled_prompt_sha256=sha256_bytes(developer_prompt.encode("utf-8")),
                 )
+                if fault.interrupt_before_developer_state:
+                    return {"status": "interrupted", "iteration": iteration, "candidate_sha256": after}
                 if fault.interrupt_after_developer:
                     self._append(iteration, "fault", "incomplete", after, {"observation": "interrupted-after-developer-checkpoint"})
                     self._save_state(
@@ -1428,6 +1653,7 @@ class HeadlessLoop:
                 {
                     "specification": self.project / "spec.md",
                     "development": development_path,
+                    "developer-report": self.documents / f"iteration-{iteration}-developer.md",
                     "receipts": self._receipt_projection("qa", iteration),
                     "candidate": frozen / "linkcheck.py",
                 },
@@ -1440,16 +1666,27 @@ class HeadlessLoop:
                 {
                     "public_specification": qa_view.read_text("specification/spec.md"),
                     "development_document": development_path.read_text(encoding="utf-8"),
+                    "developer_report": qa_view.read_text(f"developer-report/iteration-{iteration}-developer.md"),
                     "test_output": test_result["output"],
                 },
             )
-            qa = self._role_call("qa", iteration, qa_prompt, qa_view, deadline, after)
+            qa = self._role_call(
+                "qa", iteration, qa_prompt, qa_view, deadline, after,
+                test_evidence_sha256=record_hash(evidence),
+            )
             qa_report_path = self.documents / f"iteration-{iteration}-evidence.md"
             qa_report_path.write_text(qa["output_text"], encoding="utf-8")
             frozen_hash_after = hash_tree(frozen)
-            if frozen_hash_after != frozen_hash_after_test:
-                raise HarnessError("QA changed its frozen candidate")
             regressed = bool(lost_passing)
+            prospective_no_progress = no_progress + 1 if previous_hash == after else 0
+            qa_gate = evaluate_phase(
+                qa["_request"], qa, iterations=self.iterations,
+                candidate_unchanged=(frozen_hash_after == frozen_hash_after_test and hash_tree(self.project) == after),
+                evidence=evidence, lost_passing=tuple(lost_passing),
+                progress_allowed=prospective_no_progress < 2,
+            )
+            if qa_gate["decision"] == "blocked" and not regressed:
+                self._reject_phase(qa, qa_gate, after, deadline, evidence=evidence)
             if fault.regress_before_qa is not None and not regressed:
                 raise HarnessError("regression injection did not lose previously passing behavior")
             self._append(
@@ -1458,15 +1695,10 @@ class HeadlessLoop:
                 "regressed" if regressed else "complete",
                 after,
                 {
-                    "role_request": qa["_request"],
-                    "role_result": {key: value for key, value in qa.items() if not key.startswith("_")},
-                    "role_result_sha256": qa["output_sha256"],
+                    **self._phase_details(qa, qa_gate, after, evidence=evidence),
                     "evidence_report": qa["output_text"],
                     "evidence": evidence,
                     "source_metrics": source_metrics(self.project / "linkcheck.py"),
-                    "opened_receipt_files": [
-                        path for path in qa["_opened_files"] if path.startswith("receipts/")
-                    ],
                 },
                 development_document_sha256=sha256_file(development_path),
                 qa_evidence_report_sha256=sha256_file(qa_report_path),
@@ -1490,26 +1722,7 @@ class HeadlessLoop:
                     "observations": observations,
                     "lost_passing_test_ids": lost_passing,
                 }
-            if previous_hash == after:
-                no_progress += 1
-            else:
-                no_progress = 0
-            if no_progress >= 2:
-                self._append(
-                    iteration,
-                    "iteration",
-                    "failed",
-                    after,
-                    {"observation": "two-consecutive-iterations-without-candidate-progress"},
-                )
-                self._save_state(
-                    iteration,
-                    "failed",
-                    deadline_path,
-                    previous_candidate_sha256=previous_hash,
-                    no_progress_count=no_progress,
-                )
-                raise HarnessError("two consecutive iterations made no candidate progress")
+            no_progress = prospective_no_progress
             previous_hash = after
             previous_passing.update(passing)
             self._save_state(
@@ -1847,11 +2060,29 @@ def _native_adapter(runtime: str, receipt_dir: Path) -> RoleAdapter:
     )
 
 
+def load_native_workflow(
+    path: Path, receipt_dir: Path, *, run_id: str, iterations: int,
+) -> tuple[dict[str, Any], dict[str, RoleAdapter]]:
+    from hoh.claude import ClaudeAdapter
+
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise HarnessError(f"workflow configuration is unreadable: {error}") from error
+    # Validate assignments before looking up any executable or capability file.
+    workflow = Workflow(value, run_id=run_id, iterations=iterations, adapters={"claude": ClaudeAdapter})
+    adapters = {
+        runtime: _native_adapter(runtime, receipt_dir)
+        for runtime in {item["runtime"] for item in workflow.value["stages"]}
+    }
+    return workflow.value, adapters
+
+
 def main(arguments: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the bounded headless role loop")
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--iterations", type=int, required=True)
-    parser.add_argument("--runtime", choices=("claude",), required=True)
+    parser.add_argument("--workflow", type=Path, required=True)
     parser.add_argument("--receipt-dir", type=Path, required=True)
     parser.add_argument("--iteration-timeout-seconds", type=float, required=True)
     parser.add_argument("--reported-token-budget", type=int, required=True)
@@ -1859,7 +2090,9 @@ def main(arguments: list[str] | None = None) -> int:
     parser.add_argument("--run-id", default="healthy")
     values = parser.parse_args(arguments)
     try:
-        adapter = _native_adapter(values.runtime, values.receipt_dir)
+        workflow, adapters = load_native_workflow(
+            values.workflow, values.receipt_dir, run_id=values.run_id, iterations=values.iterations,
+        )
         loop = HeadlessLoop(
             project=values.project,
             receipt_dir=values.receipt_dir,
@@ -1869,7 +2102,8 @@ def main(arguments: list[str] | None = None) -> int:
             iteration_timeout_seconds=values.iteration_timeout_seconds,
             reported_token_budget=values.reported_token_budget,
             usage_ledger=values.usage_ledger,
-            adapter=adapter,
+            workflow=workflow,
+            adapters=adapters,
         )
         print(json.dumps(loop.run(), sort_keys=True))
         return 0

@@ -17,14 +17,15 @@ from hoh_loop import (  # noqa: E402
     HeadlessLoop,
     HarnessError,
     RunFault,
-    _native_adapter,
+    load_native_workflow,
 )
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run one isolated headless-loop fault probe")
     parser.add_argument("mode", choices=("resume", "regression"))
-    parser.add_argument("--runtime", choices=("claude",), required=True)
+    parser.add_argument("--workflow", type=Path, required=True)
+    parser.add_argument("--run-id", required=True)
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--receipt-dir", type=Path, required=True)
     parser.add_argument("--iteration-timeout-seconds", type=float, required=True)
@@ -34,6 +35,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _loop(values: argparse.Namespace, run_id: str) -> HeadlessLoop:
+    workflow, adapters = load_native_workflow(values.workflow, values.receipt_dir, run_id=run_id, iterations=1)
     return HeadlessLoop(
         project=values.project,
         receipt_dir=values.receipt_dir,
@@ -43,7 +45,8 @@ def _loop(values: argparse.Namespace, run_id: str) -> HeadlessLoop:
         iteration_timeout_seconds=values.iteration_timeout_seconds,
         reported_token_budget=values.reported_token_budget,
         usage_ledger=values.usage_ledger,
-        adapter=_native_adapter(values.runtime, values.receipt_dir),
+        workflow=workflow,
+        adapters=adapters,
     )
 
 
@@ -65,7 +68,7 @@ def check_tree(root):
 
 def main(arguments: list[str] | None = None) -> int:
     values = _parser().parse_args(arguments)
-    run_id = f"{values.runtime}-{values.mode}-fault"
+    run_id = values.run_id
     try:
         if values.mode == "resume":
             first = _loop(values, run_id).run(RunFault(interrupt_after_developer=True))

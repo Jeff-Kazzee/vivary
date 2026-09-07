@@ -3,7 +3,7 @@ Type: packet
 Parent: 20
 Status: needs-info
 Depends-on: [10c]
-Owner: deterministic headless-loop preparation agent, sole writer
+Owner: Codex 20c session on 2026-09-07, sole writer
 Needs: A Habitat wall clock proven nondecreasing across one complete container and subprocess acceptance lifecycle, supplied by the Habitat environment maintainer. CPU affinity and continuous distro activity did not prevent backward steps; do not rerun the strict candidate until this environment prerequisite is met.
 Scope: Offline fixture, prompts, protocol, sequencer, Claude adapter test seam, and adversarial tests; no coding-runtime or model call.
 Verification-kind: runtime
@@ -13,11 +13,104 @@ Timebox: One context window. Stop after the offline Habitat evidence and closure
 
 Create and verify every deterministic input and control needed by
 [20a](20a-headless-loop-proof.md), while its live Claude proof remains blocked
-on a verified whole-invocation token bound. The implementation is frozen and
-its source review is complete. Runtime acceptance remains open until Habitat
-provides a stable wall clock for the unchanged strict verification wave.
+on a verified whole-invocation token bound. The frozen draft is a reviewed
+baseline under the earlier contract. The owner's
+[multi-agent phase decision](../design.md#multi-agent-phase-decision-2026-09-06)
+adds the implementation gaps below. Runtime acceptance also requires a stable
+Habitat clock; the earlier test results do not accept these added requirements.
+
+## Required phase and handoff changes
+
+The 2026-09-07 source implements stage-specific runtime/agent bindings, a
+separate phase-gate decision, and durable handoff identities under the decision
+above. Response and usage completeness remain distinct from phase acceptance. The existing planner,
+developer, and QA fixture is the bounded proof. Offline cases cover mixed
+adapter routing, refused phase completion, wrong agent/session/runtime binding,
+and a repeated accepted handoff that dispatches no second successor. Keep usage
+accounting shared across stages. Native adapter and session enforcement remain
+live-runtime proof; test doubles do not establish them. Source work can proceed
+independently while the clock prerequisite holds executable Habitat acceptance.
+
+## Declared phase checks and rework routes
+
+Defined before the 2026-09-07 implementation. These are agent-selected checks
+for this fixture, under the owner's phase decision.
+
+The workflow configuration names every iteration's planner, developer, and QA
+binding. Each binding contains a runtime, assigned agent, and native session
+reference. Agents differ by role. Session references differ across stages,
+including later iterations. The configured adapter must identify the selected
+runtime. Unknown runtimes and changed resume bindings fail before dispatch.
+Native adapters retain session creation and verification. Offline doubles prove
+request routing and binding checks only.
+
+| Phase | Required checks | Accepted route | Rejected route |
+| --- | --- | --- | --- |
+| Planner | Complete response and usage, exact request and identity, all four fixture requirement IDs, nonempty priority, preservation, and acceptance sections, unchanged candidate | Developer receives the accepted development document and its revision | Block this attempt. No developer call |
+| Developer | Complete response and usage, exact identity, nonempty changes and validation sections, only `linkcheck.py` writable, valid Python with a `check_tree` function, fixed inputs unchanged, committed candidate | QA receives the accepted development document, developer report, and candidate checkpoint. The coordinator runs the fixed oracle before QA | Block this attempt. No QA call or candidate export for a rejected submission |
+| QA | Complete response and usage, exact identity, all four requirement IDs, explicit `ready`, `rework`, or `blocked` verdict bound to candidate and deterministic evidence hashes, nonempty status/evidence/gaps/next-action sections, frozen candidate unchanged | Green plus `ready` advances to the next iteration, or completes the final iteration | Known red plus `rework`, or a green candidate needing review rework, returns to the next planner while iterations remain. Regression, missing evidence, contradictory verdict, explicit block, or exhausted rework stops acceptance |
+
+The existing configured iteration limit bounds rework. Two consecutive
+iterations without candidate progress also stop. There is no hidden quality
+threshold or freeform completion inference. These mechanical planner/developer
+checks do not establish semantic correctness. QA's explicit review is required,
+and the fixed oracle independently constrains its verdict.
+
+Each request carries its stage binding, invocation attempt, consumed handoff
+hash, and QA evidence hash when applicable. Response/usage completeness and the
+coordinator's gate decision are separate records. One schema retry remains
+available only for an unchanged role view. Gate rejection is not a schema retry.
+
+The existing receipt chain stores dispatch claims and gate/handoff records.
+An accepted handoff binds the workflow revision, predecessor and successor,
+predecessor attempt, accepted artifact hashes, and candidate Git checkpoint.
+Dispatch verifies those bytes before reserving from the shared ledger. It
+persists a claim before calling the adapter. The run lock serializes competing
+resumes. A repeated claim or ambiguous crash interval refuses dispatch, retains
+the original reservation, and requires reconciliation. An accepted developer
+checkpoint can resume at QA with the original identities and deadline. The
+accepted receipt binds the exact prior control state and ledger for recovery
+between receipt and state writes. Terminal replay revalidates every accepted
+document and report hash, including final QA with no successor.
+
+New tests that exercise only these deterministic decisions may run by exact
+test class in the same offline Habitat boundary. They do not run candidate
+subprocesses or relax the production clock guard. Record this narrow evidence
+separately. The complete strict suite and independent runtime acceptance remain
+held until the recorded clock prerequisite changes meaningfully.
 
 ## Context
+
+### Workflow input
+
+`--workflow` replaces the draft's `--runtime` option in both entry points.
+Supply a JSON file with `schema: vivary.hoh-workflow/v1`,
+`policy: vivary.hoh-fixture-gates/v1`, the exact `run_id`, integer `iterations`,
+and an ordered `stages` array. Every iteration has exactly three entries in
+planner, developer, QA order. Each entry has these fields:
+
+| Field | Required value |
+| --- | --- |
+| `stage_id` | `<run_id>-i<iteration>-<role>` |
+| `run_id` | The same value passed to `--run-id` |
+| `iteration` | Integer from 1 through `iterations` |
+| `role` | `planner`, `developer`, or `qa` |
+| `runtime` | A registered adapter whose `runtime_id` matches this value |
+| `agent_id` | Assigned agent reference, distinct by role and stable across iterations |
+| `session_id` | Native session reference, unique within that runtime across all stages |
+
+The runtime integration maintainer supplies verified native session references.
+The offline tests use explicit fake references. The native entry point supports
+only the existing Claude adapter, which remains blocked by its preflight.
+Selecting Codex before its adapter exists refuses without substituting Claude.
+The original workflow hash is persisted with baseline and resume state. Changing
+assignments or sessions requires a new run and preserves the existing ledger.
+
+For the 20a healthy proof, use run ID `claude-healthy`, three iterations, and
+nine stage entries. The resume and regression fault configurations each contain
+one iteration and three entries, with their own run IDs and session references.
+The 20a command examples name each private configuration path. Store it using
+the same fresh-path, ignore, containment, and evidence rules as other proof inputs.
 
 Read [20a](20a-headless-loop-proof.md), especially its usage contract, fixture
 layout, done condition, and fault commands. Those sections remain normative for
@@ -35,7 +128,7 @@ packet, so their initial absence is not a prerequisite failure.
 ## Owned files
 
 - Create `tools/hoh_loop.py`, `tools/hoh/__init__.py`,
-  `tools/hoh/protocol.py`, and `tools/hoh/claude.py`.
+  `tools/hoh/protocol.py`, `tools/hoh/workflow.py`, and `tools/hoh/claude.py`.
 - Create `tools/hoh/prompts/planner.md`, `developer.md`, and `qa.md`.
 - Create `tools/tests/test_hoh_loop.py` and the tests-only executable
   `tools/tests/hoh_fault_probe.py`.
@@ -44,6 +137,7 @@ packet, so their initial absence is not a prerequisite failure.
 - Create `docs/product/multi-project/fixtures/hoh-loop/spec.md`,
   `linkcheck.py`, and `tests/test_links.py`.
 - Create `docs/product/multi-project/receipts/20c-headless-loop-preparation.md`.
+- Record the owner's phase clarification in `docs/product/multi-project/design.md`.
 - At closure update this packet, 20a's preparation evidence link and prerequisite
   status, and parent outcome 20. Regenerate the planning
   index and graph, update `CHANGELOG.md`, and run the approved canonical sync
@@ -121,6 +215,12 @@ Private evidence and source bundles are not product source.
     Adversarial tests use a stalled child and child-of-child to prove timeout,
     descendant termination, incomplete receipts, retained token reservations,
     no next-role launch, and no deadline reset after restart.
+13. Each stage binds its agent and runtime independently. Completion requires a
+    declared gate over the required output and evidence, separate from response
+    or usage completeness. The persisted handoff binds its accepted artifact
+    revision, predecessor, successor, and stage attempt. Tests prove configured
+    mixed-runtime routing, fail-closed gates and identity checks, and no duplicate
+    successor on replay. See the governing decision for the acceptance boundary.
 
 ## Verify
 
@@ -186,3 +286,16 @@ this packet, and do not mark 20a done from deterministic evidence.
   until the Habitat environment maintainer supplies a nondecreasing clock across
   the complete container and subprocess lifecycle. See the
   [preparation receipt](../receipts/20c-headless-loop-preparation.md).
+- 2026-09-06: The owner clarified distinct agents, per-stage runtime choice,
+  and deterministic completion/handoff. The frozen draft does not implement
+  those full requirements. This packet owns the offline corrections; earlier
+  source review and clock-held evidence remain historical.
+
+- 2026-09-07: Implemented D26's stage bindings, completion gates, durable
+  handoffs, shared accounting, and bounded accepted-developer recovery.
+  Independent source review closed seven findings and one follow-up. The author
+  wave and reviewer-requested repeat each passed 18 control tests in fresh offline
+  Habitat containers. The strict guard is unchanged; full runtime acceptance
+  remains blocked on the existing clock prerequisite. See the refreshed receipt
+  for exact scope, source hashes, retained resources, and resume point. No next
+  ticket, live call, push, or merge was claimed.

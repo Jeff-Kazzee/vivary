@@ -49,3 +49,11 @@ they do not prove the behavior above.
   independent review findings. Its strict Habitat acceptance remains
   `needs-info` after repeated wall-clock reversals, so no live-runtime or
   factory behavior is accepted.
+- 2026-09-06: The [multi-agent phase decision](../design.md#multi-agent-phase-decision-2026-09-06)
+  requires distinct stage agents, per-stage runtime choice, and deterministic
+  completion and handoff. Packet 20c owns the offline implementation gaps;
+  mixed-stage native behavior requires separate evidence beyond parity runs.
+
+- 2026-09-07: Packet 20c adds stage assignments, completion gates, durable handoffs,
+  and shared usage/replay controls. Its independently reviewed source passed two
+  18-test Habitat control waves. Full runtime acceptance awaits a stable clock.

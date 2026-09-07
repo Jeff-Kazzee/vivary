@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any
 
 
-ROLE_REQUEST_SCHEMA = "vivary.hoh-role-request/v1"
-ROLE_RESULT_SCHEMA = "vivary.hoh-role-result/v1"
+ROLE_REQUEST_SCHEMA = "vivary.hoh-role-request/v2"
+ROLE_RESULT_SCHEMA = "vivary.hoh-role-result/v2"
 EVIDENCE_SCHEMA = "vivary.hoh-evidence/v1"
 TRANSITION_SCHEMA = "vivary.hoh-transition/v1"
 RECEIPT_SCHEMA = "vivary.hoh-receipt/v1"
@@ -31,6 +31,10 @@ class ProtocolError(ValueError):
 
 class BudgetError(ProtocolError):
     """A call cannot reserve or settle its token charge safely."""
+
+
+class BindingError(ProtocolError):
+    """A response or assignment belongs to another stage or native session."""
 
 
 class DeadlineError(ProtocolError):
@@ -57,6 +61,49 @@ def _require_hash(value: object, field: str) -> None:
         raise ProtocolError(f"{field} must be a sha256 digest")
 
 
+def validate_stage_binding(record: object) -> dict[str, Any]:
+    """Validate references to an assigned agent and its native session."""
+    if not isinstance(record, dict):
+        raise BindingError("stage binding must be an object")
+    _require_exact_keys(record, {
+        "stage_id", "run_id", "iteration", "role", "runtime", "agent_id", "session_id",
+    }, "stage binding")
+    for field in ("stage_id", "run_id", "runtime", "agent_id"):
+        if not isinstance(record[field], str) or not _SLUG.fullmatch(record[field]):
+            raise BindingError(f"stage {field} must be a slug")
+    if not _is_int(record["iteration"]) or record["iteration"] < 1:
+        raise BindingError("stage iteration must be positive")
+    if not isinstance(record["role"], str) or record["role"] not in ROLES:
+        raise BindingError("stage role differs")
+    expected_id = f"{record['run_id']}-i{record['iteration']}-{record['role']}"
+    if record["stage_id"] != expected_id:
+        raise BindingError("stage id differs from run, iteration, and role")
+    session = record["session_id"]
+    if not isinstance(session, str) or not session.strip() or len(session) > 256 or any(ord(c) < 32 for c in session):
+        raise BindingError("native session reference must be a bounded nonempty string")
+    return dict(record)
+
+
+def validate_submission(record: object, *, role: str) -> dict[str, Any]:
+    """Check the explicit phase submission independently of usage completeness."""
+    if not isinstance(record, dict):
+        raise ProtocolError("phase submission must be an object")
+    _require_exact_keys(record, {
+        "decision", "candidate_sha256", "test_evidence_sha256", "requirements",
+    }, "phase submission")
+    if not isinstance(record["decision"], str) or record["decision"] not in {"ready", "rework", "blocked"}:
+        raise ProtocolError("phase submission decision is unknown")
+    _require_hash(record["candidate_sha256"], "submission candidate_sha256")
+    if role == "qa":
+        _require_hash(record["test_evidence_sha256"], "submission test_evidence_sha256")
+    elif record["test_evidence_sha256"] is not None:
+        raise ProtocolError("only QA submits deterministic evidence")
+    requirements = record["requirements"]
+    if not isinstance(requirements, list) or any(not isinstance(item, str) or not item for item in requirements) or len(set(requirements)) != len(requirements):
+        raise ProtocolError("submission requirements must be unique strings")
+    return {**record, "requirements": list(requirements)}
+
+
 def validate_role_request(record: object) -> dict[str, Any]:
     """Validate and copy one runtime-neutral role request."""
     if not isinstance(record, dict):
@@ -74,6 +121,10 @@ def validate_role_request(record: object) -> dict[str, Any]:
         "deadline_unix_ns",
         "read_roots",
         "write_root",
+        "binding",
+        "attempt",
+        "handoff_sha256",
+        "test_evidence_sha256",
     }
     _require_exact_keys(record, expected, "role request")
     if record["schema"] != ROLE_REQUEST_SCHEMA:
@@ -82,7 +133,7 @@ def validate_role_request(record: object) -> dict[str, Any]:
         raise ProtocolError("run_id must be a slug")
     if not _is_int(record["iteration"]) or record["iteration"] < 1:
         raise ProtocolError("iteration must be a positive integer")
-    if record["role"] not in ROLES:
+    if not isinstance(record["role"], str) or record["role"] not in ROLES:
         raise ProtocolError("role must be planner, developer, or qa")
     if not _is_int(record["prompt_bytes"]) or record["prompt_bytes"] < 1:
         raise ProtocolError("prompt_bytes must be a positive integer")
@@ -105,7 +156,18 @@ def validate_role_request(record: object) -> dict[str, Any]:
         raise ProtocolError("write_root must be null or a slug")
     if write_root is not None and write_root not in roots:
         raise ProtocolError("write_root must also be a declared read root")
-    return dict(record)
+    binding = validate_stage_binding(record["binding"])
+    if any(binding[field] != record[field] for field in ("run_id", "iteration", "role")):
+        raise BindingError("request stage binding differs")
+    if not _is_int(record["attempt"]) or record["attempt"] not in (1, 2):
+        raise ProtocolError("request attempt must be 1 or 2")
+    if record["handoff_sha256"] is not None:
+        _require_hash(record["handoff_sha256"], "handoff_sha256")
+    if record["role"] == "qa":
+        _require_hash(record["test_evidence_sha256"], "test_evidence_sha256")
+    elif record["test_evidence_sha256"] is not None:
+        raise ProtocolError("only QA requests deterministic evidence")
+    return {**record, "binding": binding}
 
 
 def validate_role_result(
@@ -127,6 +189,9 @@ def validate_role_result(
         "output_sha256",
         "usage",
         "complete",
+        "binding",
+        "attempt",
+        "submission",
     }
     _require_exact_keys(record, expected, "role result")
     if record["schema"] != ROLE_RESULT_SCHEMA:
@@ -135,7 +200,7 @@ def validate_role_result(
         raise ProtocolError("role result run_id must be a slug")
     if not _is_int(record["iteration"]) or record["iteration"] < 1:
         raise ProtocolError("role result iteration must be positive")
-    if record["role"] not in ROLES:
+    if not isinstance(record["role"], str) or record["role"] not in ROLES:
         raise ProtocolError("role result role differs")
     expected_kind = {
         "planner": "development_document",
@@ -151,14 +216,23 @@ def validate_role_result(
     if not isinstance(record["complete"], bool):
         raise ProtocolError("role result complete must be boolean")
     usage = validate_usage_record(record["usage"])
+    binding = validate_stage_binding(record["binding"])
+    if any(binding[field] != record[field] for field in ("run_id", "iteration", "role")):
+        raise BindingError("result stage binding differs")
+    if not _is_int(record["attempt"]) or record["attempt"] not in (1, 2):
+        raise BindingError("result attempt differs")
+    submission = validate_submission(record["submission"], role=record["role"])
     if record["complete"] != usage["complete"]:
         raise ProtocolError("role and usage completion differ")
     if request is not None:
         bound = validate_role_request(request)
-        for field in ("run_id", "iteration", "role"):
+        for field in ("run_id", "iteration", "role", "binding", "attempt"):
             if record[field] != bound[field]:
-                raise ProtocolError(f"role result has stale or cross-run {field}")
-    return {**record, "usage": usage}
+                raise BindingError(f"role result has stale or cross-run {field}")
+        for field in ("candidate_sha256", "test_evidence_sha256"):
+            if submission[field] != bound[field]:
+                raise BindingError(f"phase submission has stale {field}")
+    return {**record, "usage": usage, "binding": binding, "submission": submission}
 
 
 def validate_evidence_record(
@@ -303,6 +377,7 @@ def validate_receipt_record(record: object) -> dict[str, Any]:
         "prior_receipt_sha256",
     }
     optional_bindings = {
+        "workflow_sha256",
         "assembled_prompt_sha256",
         "development_document_sha256",
         "developer_report_sha256",

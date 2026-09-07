@@ -67,6 +67,41 @@ owns the shared adapter acceptance. Outcomes 18, 19, 20, 30, and 36 carry the
 rest in their logs. These decisions change order and acceptance. They do not add
 product scope or authorize spending, publication, scheduling, or account changes.
 
+## Multi-agent phase decision: 2026-09-06
+
+The owner clarified that the product loop passes work between distinct agents,
+with deterministic phase completion and handoff. Each stage can select a
+different runtime. This extends the run-wide runtime choice above; using Claude
+for a whole run and Codex for a separate run does not prove mixed-stage operation.
+
+The coordinator owns the workflow state and transition rules. Each stage binds
+its assigned agent, runtime, permissions, required outputs, and completion rule.
+It starts a distinct agent session for that stage and hands over only the
+declared inputs and accepted artifacts. Resuming a stage preserves its identity;
+handoff to another stage must not reuse the first agent's conversation as a new role.
+
+A returned response or complete usage report is not phase acceptance. The
+coordinator checks the declared artifact and evidence requirements, persists the
+decision, and dispatches the assigned next agent only when the rule allows it.
+Rules must cover advance, bounded rework, blocked work, and final completion.
+Missing evidence, unknown outcomes, and an unsupported runtime cannot silently
+advance or select a replacement runtime. Reopening the same accepted handoff
+must not start the successor twice or reset the workflow's budget.
+
+Determinism applies to the transition given the recorded inputs and policy.
+AI judgments can vary. When a phase needs judgment, its gate consumes an explicit
+review or human decision bound to the artifact revision, rather than interpreting
+freeform claims of completion. The exact phase checks and rework routes are
+implementation choices that require declared tests; no runtime assignment or
+quality threshold is selected by this clarification.
+
+Packet 20c owns the offline routing and gate implementation. Packet 20a and its
+20b continuation can still establish each runtime's baseline behavior, but
+accepting the product also requires a bounded proof with different runtimes in
+one workflow and preserved handoff identities, artifacts, and shared accounting.
+Reuse the native run/session owners; this decision creates no replacement queue,
+unbounded worker service, spending grant, or live-runtime acceptance.
+
 ## Recommended architecture
 
 Use Vivary as the portable workspace and governance layer. Compose Agent-Native's application, action, chat, run, session, resource, connection, and automation primitives in the workbench. Selected coding runtimes retain their loops, tools, compaction, and native session state.

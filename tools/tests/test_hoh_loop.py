@@ -11,6 +11,8 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from copy import deepcopy
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,6 +20,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 TEST_BOOT_ID = "00000000-0000-4000-8000-000000000001"
 
 from hoh.protocol import (  # noqa: E402
+    BindingError,
     BudgetError,
     ClockError,
     DeadlineError,
@@ -29,6 +32,9 @@ from hoh.protocol import (  # noqa: E402
     validate_evidence_record,
     validate_transition_record,
     validate_usage_record,
+)
+from hoh.workflow import (  # noqa: E402
+    PHASE_POLICY, REQUIREMENT_IDS, WORKFLOW_SCHEMA, Workflow, evaluate_phase, record_hash,
 )
 from hoh.claude import (  # noqa: E402
     ClaudeAdapter,
@@ -47,6 +53,7 @@ from hoh_loop import (  # noqa: E402
     run_owned_process,
     run_product_tests,
     sha256_bytes,
+    sha256_file,
     verify_expected_red,
 )
 
@@ -57,13 +64,46 @@ def preserved_test_dir(prefix: str) -> Path:
     return Path(tempfile.mkdtemp(prefix=prefix, dir=root))
 
 
+def test_workflow(run_id, iterations, runtimes=("double", "double", "double")):
+    return {
+        "schema": WORKFLOW_SCHEMA, "policy": PHASE_POLICY,
+        "run_id": run_id, "iterations": iterations,
+        "stages": [
+            {
+                "stage_id": f"{run_id}-i{iteration}-{role}", "run_id": run_id,
+                "iteration": iteration, "role": role, "runtime": runtime,
+                "agent_id": f"{role}-agent", "session_id": f"fake-session-{run_id}-{iteration}-{role}",
+            }
+            for iteration in range(1, iterations + 1)
+            for role, runtime in zip(("planner", "developer", "qa"), runtimes)
+        ],
+    }
+
+
+def make_test_loop(*, adapter, **values):
+    return HeadlessLoop(
+        **values, workflow=test_workflow(values["run_id"], values["iterations"]),
+        adapters={"double": adapter},
+    )
+
+
+def submission(request, decision="ready"):
+    return {
+        "decision": decision, "candidate_sha256": request["candidate_sha256"],
+        "test_evidence_sha256": request["test_evidence_sha256"],
+        "requirements": sorted(REQUIREMENT_IDS),
+    }
+
+
 class ProtocolTests(unittest.TestCase):
     def test_role_request_accepts_only_the_versioned_runtime_neutral_shape(self) -> None:
         request = {
-            "schema": "vivary.hoh-role-request/v1",
+            "schema": "vivary.hoh-role-request/v2",
             "run_id": "run-001",
             "iteration": 1,
             "role": "planner",
+            "binding": test_workflow("run-001", 1)["stages"][0],
+            "attempt": 1, "handoff_sha256": None, "test_evidence_sha256": None,
             "prompt_bytes": 128,
             "prompt_sha256": "sha256:" + "a" * 64,
             "baseline_sha256": "sha256:" + "b" * 64,
@@ -89,10 +129,13 @@ class ProtocolTests(unittest.TestCase):
 
     def test_result_evidence_and_transition_reject_stale_or_cross_run_fields(self) -> None:
         request = {
-            "schema": "vivary.hoh-role-request/v1",
+            "schema": "vivary.hoh-role-request/v2",
             "run_id": "run-001",
             "iteration": 1,
             "role": "qa",
+            "binding": test_workflow("run-001", 1)["stages"][2],
+            "attempt": 1, "handoff_sha256": "sha256:" + "d" * 64,
+            "test_evidence_sha256": "sha256:" + "e" * 64,
             "prompt_bytes": 10,
             "prompt_sha256": "sha256:" + "a" * 64,
             "baseline_sha256": "sha256:" + "b" * 64,
@@ -116,10 +159,12 @@ class ProtocolTests(unittest.TestCase):
             "complete": True,
         }
         result = {
-            "schema": "vivary.hoh-role-result/v1",
+            "schema": "vivary.hoh-role-result/v2",
             "run_id": "run-001",
             "iteration": 1,
             "role": "qa",
+            "binding": request["binding"], "attempt": request["attempt"],
+            "submission": submission(request),
             "request_sha256": sha256_bytes(canonical_json_bytes(request)),
             "output_kind": "evidence_report",
             "output_text": output,
@@ -805,9 +850,13 @@ class RoleViewAndReceiptTests(unittest.TestCase):
 
 
 class DeterministicRoleAdapter:
-    def __init__(self, *, completed_developer: bool = False):
+    runtime_id = "double"
+
+    def __init__(self, *, completed_developer: bool = False, runtime_id: str = "double"):
         self.calls: list[tuple[int, str]] = []
         self.completed_developer = completed_developer
+        self.runtime_id = runtime_id
+        self.requests = []
 
     def maximum_charge(self, _role: str) -> int:
         return 10
@@ -816,10 +865,17 @@ class DeterministicRoleAdapter:
         role = request["role"]
         iteration = request["iteration"]
         self.calls.append((iteration, role))
+        self.requests.append(deepcopy(request))
+        decision = "ready"
         if role == "planner":
             with self._must_refuse():
                 view.read_text("candidate/linkcheck.py")
-            output = f"## Project Planner Priorities\nIteration {iteration}\n"
+            output = (
+                f"## Project Planner Priorities\nIteration {iteration}\n"
+                "### Priority Order\n1. Repair the next observed fixture gap.\n"
+                "### Preservation Gate\nPreserve every passing requirement.\n"
+                "### Acceptance Gate\nRun the fixed oracle and report all observations.\n"
+            )
         elif role == "developer":
             current = view.read_text("candidate/linkcheck.py")
             if self.completed_developer:
@@ -827,11 +883,16 @@ class DeterministicRoleAdapter:
             else:
                 output_source = self._source_for_iteration(iteration)
             view.write_text("candidate/linkcheck.py", output_source)
-            output = f"Developer changed fixture behavior for iteration {iteration}.\n"
+            output = f"## Changes\nChanged fixture behavior for iteration {iteration}.\n## Validation\nCoordinator runs the fixed oracle.\n"
         else:
             with self._must_refuse():
                 view.write_text("candidate/linkcheck.py", "changed")
-            output = f"# Evidence report\nIteration {iteration} assessed from deterministic output.\n"
+            view.read_text(f"developer-report/iteration-{iteration}-developer.md")
+            decision = "rework" if "FAILED" in _prompt else "ready"
+            output = (
+                f"## Status\n{decision}\n## Evidence\nIteration {iteration} deterministic output.\n"
+                "## Gaps\nSee named failed tests, if any.\n## Next action\nFollow the coordinator gate.\n"
+            )
         usage = {
             "schema": "vivary.hoh-usage/v1",
             "vendor_usage_raw": {"source": "deterministic-role-double"},
@@ -845,10 +906,12 @@ class DeterministicRoleAdapter:
             "complete": True,
         }
         return {
-            "schema": "vivary.hoh-role-result/v1",
+            "schema": "vivary.hoh-role-result/v2",
             "run_id": request["run_id"],
             "iteration": iteration,
             "role": role,
+            "binding": deepcopy(request["binding"]), "attempt": request["attempt"],
+            "submission": submission(request, decision),
             "request_sha256": sha256_bytes(canonical_json_bytes(request)),
             "output_kind": {
                 "planner": "development_document",
@@ -945,6 +1008,8 @@ class InvalidMutatingDeveloperAdapter(DeterministicRoleAdapter):
 
 
 class UnknownMaximumAdapter:
+    runtime_id = "double"
+
     def __init__(self):
         self.invoked = False
 
@@ -1004,10 +1069,12 @@ time.sleep(60)
             "complete": False,
         }
         return {
-            "schema": "vivary.hoh-role-result/v1",
+            "schema": "vivary.hoh-role-result/v2",
             "run_id": request["run_id"],
             "iteration": request["iteration"],
             "role": request["role"],
+            "binding": request["binding"], "attempt": request["attempt"],
+            "submission": submission(request),
             "request_sha256": sha256_bytes(canonical_json_bytes(request)),
             "output_kind": "development_document",
             "output_text": output,
@@ -1082,7 +1149,7 @@ class SequencerTests(unittest.TestCase):
         return destination
 
     def _loop(self, name: str, project: Path, adapter: DeterministicRoleAdapter, iterations: int = 1) -> HeadlessLoop:
-        return HeadlessLoop(
+        return make_test_loop(
             project=project,
             receipt_dir=self.root / f"{name}-receipts",
             prompt_dir=self.prompts,
@@ -1104,6 +1171,27 @@ class SequencerTests(unittest.TestCase):
         result = loop.run(RunFault(interrupt_after_developer=True))
         self.assertEqual(result["status"], "interrupted")
         return project, self.root / f"{name}-receipts", self.root / f"{name}-usage.json"
+
+    def test_resume_after_accepted_developer_receipt_before_state_write(self) -> None:
+        project = self._project("receipt-gap-project")
+        project.joinpath("linkcheck.py").write_text(DeterministicRoleAdapter._source_for_iteration(3), encoding="utf-8")
+        first = self._loop("receipt-gap", project, DeterministicRoleAdapter(completed_developer=True))
+        result = first.run(RunFault(interrupt_before_developer_state=True))
+        self.assertEqual(result["status"], "interrupted")
+        stale = json.loads(first.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(stale["stage"], "iteration_started")
+        deadline = json.loads(Path(stale["deadline_path"]).read_text(encoding="utf-8"))
+        ledger_before = first.ledger.snapshot()
+        adapter = DeterministicRoleAdapter(completed_developer=True)
+        reopened = self._loop("receipt-gap", project, adapter)
+        self.assertEqual(reopened.run()["status"], "complete")
+        self.assertEqual(adapter.calls, [(1, "qa")])
+        self.assertEqual(reopened.ledger.snapshot()["charged"], ledger_before["charged"] + 2)
+        resumed_deadline = json.loads(Path(stale["deadline_path"]).read_text(encoding="utf-8"))
+        for field in ("expires_unix_ns", "started_monotonic_ns", "boot_id", "duration_seconds"):
+            self.assertEqual(resumed_deadline[field], deadline[field])
+        self.assertEqual(reopened.run()["status"], "complete")
+        self.assertEqual(adapter.calls, [(1, "qa")])
 
     def test_three_iterations_preserve_order_bindings_and_reach_green(self) -> None:
         project = self._project("healthy-project")
@@ -1198,11 +1286,11 @@ class SequencerTests(unittest.TestCase):
             0,
         )
 
-    def test_stale_result_cannot_release_reserved_budget_before_retry(self) -> None:
+    def test_stale_identity_retains_reservation_without_a_schema_retry(self) -> None:
         project = self._project("stale-result-project")
         adapter = StaleResultAdapter()
         ledger_path = self.root / "stale-result-usage.json"
-        loop = HeadlessLoop(
+        loop = make_test_loop(
             project=project,
             receipt_dir=self.root / "stale-result-receipts",
             prompt_dir=self.prompts,
@@ -1214,7 +1302,7 @@ class SequencerTests(unittest.TestCase):
             adapter=adapter,
         )
 
-        with self.assertRaisesRegex(BudgetError, "maximum exceeds"):
+        with self.assertRaisesRegex(HarnessError, "identity mismatch"):
             loop.run()
 
         self.assertEqual(adapter.calls, [(1, "planner")])
@@ -1255,7 +1343,7 @@ class SequencerTests(unittest.TestCase):
 
         red_project = self._project("final-red-project")
         red_adapter = DeterministicRoleAdapter()
-        with self.assertRaisesRegex(HarnessError, "final candidate"):
+        with self.assertRaisesRegex(HarnessError, "completion gate rejected"):
             self._loop("final-red", red_project, red_adapter).run()
         first_calls = list(red_adapter.calls)
         self.assertEqual(first_calls, [(1, "planner"), (1, "developer"), (1, "qa")])
@@ -1300,7 +1388,7 @@ class SequencerTests(unittest.TestCase):
         )
         adapter = NoProgressAdapter()
 
-        with self.assertRaisesRegex(HarnessError, "two consecutive iterations"):
+        with self.assertRaisesRegex(HarnessError, "progress_allowed"):
             self._loop("no-progress", project, adapter, iterations=3).run()
 
         self.assertEqual(adapter.calls[-1], (3, "qa"))
@@ -1309,7 +1397,7 @@ class SequencerTests(unittest.TestCase):
     def test_stalled_role_retains_reservation_writes_incomplete_receipt_and_deadline_on_restart(self) -> None:
         project = self._project("stalled-project")
         adapter = StallingPlannerAdapter()
-        loop = HeadlessLoop(
+        loop = make_test_loop(
             project=project,
             receipt_dir=self.root / "stalled-receipts",
             prompt_dir=self.prompts,
@@ -1338,7 +1426,7 @@ class SequencerTests(unittest.TestCase):
 
         restarted = StallingPlannerAdapter()
         with self.assertRaises(DeadlineError):
-            HeadlessLoop(
+            make_test_loop(
                 project=project,
                 receipt_dir=self.root / "stalled-receipts",
                 prompt_dir=self.prompts,
@@ -1439,7 +1527,7 @@ class SequencerTests(unittest.TestCase):
         project, receipts, ledger = self._interrupted_after_developer("resume-ledger-path")
         adapter = DeterministicRoleAdapter(completed_developer=True)
         changed_path = self.root / "other-usage.json"
-        changed = HeadlessLoop(
+        changed = make_test_loop(
             project=project,
             receipt_dir=receipts,
             prompt_dir=self.prompts,
@@ -1456,7 +1544,7 @@ class SequencerTests(unittest.TestCase):
 
         project, receipts, ledger = self._interrupted_after_developer("resume-policy")
         adapter = DeterministicRoleAdapter(completed_developer=True)
-        changed = HeadlessLoop(
+        changed = make_test_loop(
             project=project,
             receipt_dir=receipts,
             prompt_dir=self.prompts,
@@ -1553,7 +1641,7 @@ class SequencerTests(unittest.TestCase):
         )
         self.assertEqual(state["no_progress_count"], 1)
         resumed_adapter = NoProgressAdapter()
-        with self.assertRaisesRegex(HarnessError, "two consecutive iterations"):
+        with self.assertRaisesRegex(HarnessError, "progress_allowed"):
             self._loop(
                 "no-progress-resume", project, resumed_adapter, iterations=3
             ).run()
@@ -1618,6 +1706,404 @@ class SequencerTests(unittest.TestCase):
             refusal["bindings"]["frozen_candidate_after_sha256"],
         )
         self.assertFalse(any(payload["stage"] == "qa" for payload in receipts))
+
+
+class StageBindingAndHandoffTests(unittest.TestCase):
+    """Control decisions on real files, with no candidate process or real clock.
+
+    Native sessions, Git checkpoints, oracle observations, and the deadline are
+    explicit test doubles. The complete strict suite owns their runtime proof.
+    """
+
+    class DeadlineDouble:
+        expires_unix_ns = 2_000_000_000
+
+        def __init__(self, path):
+            self.path = path
+
+        def remaining(self):
+            return 60
+
+    def setUp(self):
+        self.root = preserved_test_dir("stage-control-")
+        self.project = self.root / "project"
+        shutil.copytree(ROOT / "docs/product/multi-project/fixtures/hoh-loop", self.project)
+        self.project.chmod(0o755)
+        for path in self.project.rglob("*"):
+            path.chmod(0o755 if path.is_dir() else 0o644)
+        self.baseline_hash = hash_tree(self.project)
+        self.adapters = {
+            runtime: DeterministicRoleAdapter(runtime_id=runtime)
+            for runtime in ("claude", "codex")
+        }
+        self.config = test_workflow("mixed", 2, ("claude", "codex", "claude"))
+        self.deadline = self.DeadlineDouble(self.root / "receipts/iteration-1-deadline.json")
+        self.loop = self._open()
+        self.loop._append(1, "iteration", "started", hash_tree(self.project), {"observation": "control-test-only"})
+        self.loop._save_state(1, "iteration_started", self.deadline.path, previous_candidate_sha256=None, no_progress_count=0)
+
+    def _open(self, config=None):
+        loop = HeadlessLoop(
+            project=self.project, receipt_dir=self.root / "receipts", prompt_dir=ROOT / "tools/hoh/prompts",
+            run_id="mixed", iterations=2, iteration_timeout_seconds=60, reported_token_budget=1000,
+            usage_ledger=self.root / "usage.json", workflow=config or self.config, adapters=self.adapters,
+        )
+        loop.receipts = ReceiptStore(loop.receipt_dir, "mixed")
+        loop.baseline_sha256 = self.baseline_hash
+        loop.baseline_commit, loop.baseline_tree = "1" * 40, "2" * 40
+        loop._git_value = lambda *_args: "1" * 40
+        loop._verify_fixed_inputs = lambda: None
+        return loop
+
+    def _view(self, role, iteration=1):
+        sources = {"receipts": self.loop._receipt_projection(role, iteration)}
+        if role in {"planner", "qa"}:
+            sources["specification"] = self.project / "spec.md"
+        if role in {"developer", "qa"}:
+            sources["candidate"] = self.project / "linkcheck.py"
+            sources["development"] = self.loop.documents / f"iteration-{iteration}-development.md"
+        if role == "qa":
+            sources["developer-report"] = self.loop.documents / f"iteration-{iteration}-developer.md"
+        return self.loop._new_view(role, iteration, sources, "candidate" if role == "developer" else None)
+
+    def _evidence(self, iteration=1, red=False):
+        return {
+            "schema": "vivary.hoh-evidence/v1", "run_id": "mixed", "iteration": iteration,
+            "candidate_sha256": hash_tree(self.project), "command": ["control-test-oracle-double"],
+            "returncode": 1 if red else 0, "output_sha256": "sha256:" + "f" * 64,
+            "observations": [sorted(REQUIREMENT_IDS)[0]] if red else [], "complete": True,
+        }
+
+    def _phase(self, role, *, iteration=1, red=False, verdict=None, mutate=None):
+        candidate = hash_tree(self.project)
+        evidence = self._evidence(iteration, red) if role == "qa" else None
+        if evidence is not None:
+            self.loop._append(iteration, "test", "complete", candidate, {"evidence": evidence})
+        view = self._view(role, iteration)
+        result = self.loop._role_call(
+            role, iteration, "FAILED" if red else "control test prompt", view, self.deadline, candidate,
+            test_evidence_sha256=record_hash(evidence) if evidence else None,
+        )
+        if verdict:
+            result["submission"]["decision"] = verdict
+        if mutate:
+            mutate(result)
+        suffix = {"planner": "development", "developer": "developer", "qa": "evidence"}[role]
+        (self.loop.documents / f"iteration-{iteration}-{suffix}.md").write_text(result["output_text"], encoding="utf-8")
+        gate = evaluate_phase(
+            result["_request"], result, iterations=2, candidate_unchanged=True,
+            developer_source=view.read_text("candidate/linkcheck.py") if role == "developer" else None,
+            developer_files={"linkcheck.py"} if role == "developer" else None, evidence=evidence,
+        )
+        if gate["decision"] == "blocked":
+            self.loop._reject_phase(result, gate, candidate, self.deadline, evidence=evidence)
+        if role == "developer":
+            view.export_writable(self.project, {"linkcheck.py"})
+        candidate = hash_tree(self.project)
+        details = self.loop._phase_details(result, gate, candidate, evidence=evidence)
+        bindings = {}
+        if role == "developer":
+            details["control_transition"] = {
+                "prior_state_sha256": sha256_file(self.loop.state_path),
+                "usage_ledger_sha256": sha256_file(self.loop.usage_ledger_path),
+            }
+            bindings = {
+                "development_document_sha256": details["handoff"]["artifacts"]["development_document_sha256"],
+                "developer_report_sha256": details["handoff"]["artifacts"]["developer_report_sha256"],
+                "developer_checkpoint": "1" * 40,
+            }
+        if role == "qa":
+            bindings = {"frozen_candidate_before_sha256": candidate, "frozen_candidate_after_sha256": candidate}
+        self.loop._append(iteration, role, "complete", candidate, details, **bindings)
+        return result, gate, details["handoff"], view
+
+    def test_accepted_developer_recovers_only_its_bound_state_and_keeps_shared_usage(self):
+        self._phase("planner")
+        self._phase("developer")
+        stale = json.loads(self.loop.state_path.read_text(encoding="utf-8"))
+        usage = self.loop.usage_ledger_path.read_bytes()
+        reopened = self._open()
+        recovered = reopened._state()
+        self.assertEqual(recovered["stage"], "developer_complete")
+        self.assertEqual(recovered["deadline_path"], stale["deadline_path"])
+        self.assertEqual(reopened.usage_ledger_path.read_bytes(), usage)
+        self.assertEqual(reopened._state(), recovered)
+        self.loop = reopened
+        self._phase("qa")
+        self.assertEqual(self.adapters["claude"].calls, [(1, "planner"), (1, "qa")])
+        self.assertEqual(self.adapters["codex"].calls, [(1, "developer")])
+        self.assertEqual(self.loop.ledger.snapshot()["charged"], 6)
+
+    def test_developer_recovery_refuses_unbound_state_usage_and_artifact_changes(self):
+        for target in ("state", "usage", "missing-usage", "developer-report"):
+            with self.subTest(target=target):
+                self.setUp()
+                self._phase("planner")
+                self._phase("developer")
+                if target == "state":
+                    state = json.loads(self.loop.state_path.read_text(encoding="utf-8"))
+                    state["no_progress_count"] = 1
+                    self.loop.state_path.write_text(json.dumps(state), encoding="utf-8")
+                elif target == "usage":
+                    self.loop.ledger.reserve("orphan", 10)
+                elif target == "missing-usage":
+                    self.loop.usage_ledger_path.unlink()
+                else:
+                    (self.loop.documents / "iteration-1-developer.md").write_text("changed", encoding="utf-8")
+                with self.assertRaisesRegex(HarnessError, "binding differs|artifact differs"):
+                    self._open()._state()
+                self.assertEqual(self.adapters["claude"].calls, [(1, "planner")])
+
+    def test_terminal_replay_revalidates_every_accepted_document(self):
+        for iteration in (1, 2):
+            for role in ("planner", "developer", "qa"):
+                self._phase(role, iteration=iteration)
+        candidate = hash_tree(self.project)
+        self.loop._verify_terminal_evidence(candidate)
+        for suffix in ("development", "developer", "evidence"):
+            path = self.loop.documents / f"iteration-2-{suffix}.md"
+            original = path.read_bytes()
+            path.write_text("changed", encoding="utf-8")
+            with self.assertRaisesRegex(HarnessError, "accepted handoff artifact differs"):
+                self.loop._verify_terminal_evidence(candidate)
+            path.unlink()
+            with self.assertRaisesRegex(HarnessError, "accepted handoff artifact differs"):
+                self.loop._verify_terminal_evidence(candidate)
+            path.write_bytes(original)
+        self.loop._verify_terminal_evidence(candidate)
+
+    def test_mixed_adapters_receive_distinct_stage_bindings_and_one_shared_budget(self):
+        planner = self._phase("planner")
+        developer = self._phase("developer")
+        qa = self._phase("qa")
+        self.assertEqual(self.adapters["claude"].calls, [(1, "planner"), (1, "qa")])
+        self.assertEqual(self.adapters["codex"].calls, [(1, "developer")])
+        requests = [item[0]["_request"] for item in (planner, developer, qa)]
+        self.assertEqual(len({item["binding"]["agent_id"] for item in requests}), 3)
+        self.assertEqual(len({item["binding"]["session_id"] for item in requests}), 3)
+        self.assertIsNone(requests[0]["handoff_sha256"])
+        self.assertEqual(requests[1]["handoff_sha256"], record_hash(planner[2]))
+        self.assertEqual(requests[2]["handoff_sha256"], record_hash(developer[2]))
+        self.assertIn("developer-report", requests[2]["read_roots"])
+        self.assertIn("developer-report/iteration-1-developer.md", qa[0]["_opened_files"])
+        self.assertEqual(qa[2]["successor"], self.loop.workflow.binding(2, "planner"))
+        self.assertEqual(UsageLedger(self.root / "usage.json", 1000).snapshot()["charged"], 6)
+        self.loop._verify_workflow_receipts()
+
+    def test_complete_response_with_missing_plan_checks_does_not_dispatch_developer(self):
+        with self.assertRaisesRegex(HarnessError, "completion gate rejected"):
+            self._phase("planner", mutate=lambda result: result["submission"].update(requirements=[]))
+        last = self.loop.receipts.last_payload
+        self.assertTrue(last["details"]["role_result"]["complete"])
+        self.assertEqual(last["details"]["phase_gate"]["decision"], "blocked")
+        self.assertIsNone(last["details"]["handoff"]["successor"])
+        with self.assertRaisesRegex(HarnessError, "predecessor handoff"):
+            self.loop._consume_handoff(self.loop.workflow.binding(1, "developer"))
+        self.assertEqual(self.adapters["codex"].calls, [])
+        self.assertEqual(self.loop.ledger.snapshot()["charged"], 2)
+
+    def test_rejected_developer_keeps_the_candidate_and_never_dispatches_qa(self):
+        self._phase("planner")
+        before = hash_tree(self.project)
+        with self.assertRaisesRegex(HarnessError, "completion gate rejected"):
+            self._phase("developer", verdict="blocked")
+        self.assertEqual(hash_tree(self.project), before)
+        self.assertEqual(self.adapters["claude"].calls, [(1, "planner")])
+
+    def test_valid_incomplete_response_is_a_gate_rejection_without_schema_retry(self):
+        adapter = self.adapters["claude"]
+        original = adapter.invoke
+        def incomplete(*args):
+            result = original(*args)
+            result["complete"] = False
+            result["usage"]["complete"] = False
+            return result
+        with patch.object(adapter, "invoke", side_effect=incomplete):
+            with self.assertRaisesRegex(HarnessError, "response_and_usage"):
+                self._phase("planner")
+        self.assertEqual(adapter.calls, [(1, "planner")])
+        self.assertEqual(self.loop.ledger.snapshot()["charged"], 10)
+        last = self.loop.receipts.last_payload
+        self.assertEqual(last["details"]["phase_gate"]["decision"], "blocked")
+        self.assertIsNone(last["details"]["handoff"]["successor"])
+        self.assertEqual(self.adapters["codex"].calls, [])
+
+    def test_qa_rework_handoff_is_bounded_and_final_completion_requires_ready_green(self):
+        self._phase("planner")
+        self._phase("developer")
+        result, gate, handoff, _ = self._phase("qa", red=True)
+        self.assertEqual(gate["decision"], "rework")
+        self.assertEqual(handoff["successor"]["role"], "planner")
+        self.assertEqual(handoff["successor"]["iteration"], 2)
+        self.assertEqual(self.loop._consume_handoff(self.loop.workflow.binding(2, "planner")), record_hash(handoff))
+        for final, red, verdict, expected in (
+            (False, True, "ready", "blocked"), (False, False, "blocked", "blocked"),
+            (True, True, "rework", "blocked"), (True, False, "rework", "blocked"),
+            (True, False, "ready", "complete"),
+        ):
+            with self.subTest(final=final, red=red, verdict=verdict):
+                request = deepcopy(result["_request"])
+                iteration = 2 if final else 1
+                request.update(iteration=iteration, binding=self.loop.workflow.binding(iteration, "qa"))
+                evidence = self._evidence(iteration, red)
+                request["test_evidence_sha256"] = record_hash(evidence)
+                response = {**deepcopy(result), "iteration": iteration, "binding": request["binding"],
+                            "request_sha256": record_hash(request), "submission": submission(request, verdict)}
+                decision = evaluate_phase(request, response, iterations=2, candidate_unchanged=True, evidence=evidence)
+                self.assertEqual(decision["decision"], expected)
+
+    def test_identity_mismatches_retain_the_maximum_and_never_retry(self):
+        for field in ("runtime", "agent_id", "session_id", "stage_id", "attempt", "run_id"):
+            with self.subTest(field=field):
+                self.setUp()
+                adapter = self.adapters["claude"]
+                original = adapter.invoke
+                def mismatched(*args):
+                    result = original(*args)
+                    if field == "attempt":
+                        result[field] = 2
+                    elif field == "run_id":
+                        result[field] = "other-run"
+                    else:
+                        result["binding"][field] = "other-identity"
+                    return result
+                with patch.object(adapter, "invoke", side_effect=mismatched):
+                    with self.assertRaisesRegex(HarnessError, "identity mismatch"):
+                        self._phase("planner")
+                self.assertEqual(adapter.calls, [(1, "planner")])
+                self.assertEqual(self.loop.ledger.snapshot()["charged"], 10)
+                self.assertEqual(self.adapters["codex"].calls, [])
+
+    def test_unsupported_runtime_reused_session_and_shared_agent_fail_before_dispatch(self):
+        for mutation in (
+            lambda config: config["stages"][1].update(runtime="unavailable"),
+            lambda config: config["stages"][2].update(session_id=config["stages"][0]["session_id"]),
+            lambda config: config["stages"][1].update(agent_id=config["stages"][0]["agent_id"]),
+            lambda config: config.update(policy="unknown-policy"),
+            lambda config: config["stages"].pop(),
+        ):
+            config = deepcopy(self.config)
+            mutation(config)
+            with self.assertRaises(ProtocolError):
+                self._open(config)
+        self.assertEqual(sum(len(a.calls) for a in self.adapters.values()), 0)
+
+    def test_reopening_an_accepted_handoff_cannot_dispatch_the_successor_twice(self):
+        self._phase("planner")
+        self._phase("developer")
+        _, _, _, qa_view = self._phase("qa")
+        before = self.loop.ledger.snapshot()
+        self.loop = self._open()
+        with self.assertRaisesRegex(HarnessError, "already dispatched"):
+            self.loop._role_call("qa", 1, "prompt", qa_view, self.deadline, hash_tree(self.project), record_hash(self._evidence()))
+        self.assertEqual(self.loop.ledger.snapshot(), before)
+        self.assertEqual(self.adapters["claude"].calls, [(1, "planner"), (1, "qa")])
+
+    def test_crash_after_dispatch_claim_retains_reservation_and_blocks_replay(self):
+        class SimulatedCrash(BaseException):
+            pass
+        view = self._view("planner")
+        with patch.object(self.adapters["claude"], "invoke", side_effect=SimulatedCrash):
+            with self.assertRaises(SimulatedCrash):
+                self.loop._role_call("planner", 1, "prompt", view, self.deadline, hash_tree(self.project))
+        self.loop = self._open()
+        self.assertEqual(self.loop.ledger.snapshot()["charged"], 10)
+        self.assertEqual(self.loop.receipts.last_payload["status"], "started")
+        with self.assertRaisesRegex(HarnessError, "already dispatched"):
+            self.loop._role_call("planner", 1, "prompt", view, self.deadline, hash_tree(self.project))
+        self.assertEqual(self.adapters["claude"].calls, [])
+
+    def test_repeated_handoff_record_is_refused_without_a_second_reservation(self):
+        self._phase("planner")
+        payload = deepcopy(self.loop.receipts.last_payload)
+        self.loop._append(1, "planner", "complete", hash_tree(self.project), payload["details"])
+        with self.assertRaisesRegex(HarnessError, "missing or repeated"):
+            self.loop._consume_handoff(self.loop.workflow.binding(1, "developer"))
+        with self.assertRaisesRegex(HarnessError, "missing or repeated"):
+            self.loop._verify_workflow_receipts()
+        self.assertEqual(self.loop.ledger.snapshot()["charged"], 2)
+
+    def test_artifact_revision_and_successor_mismatches_refuse_dispatch(self):
+        _, _, handoff, _ = self._phase("planner")
+        changed = deepcopy(handoff)
+        changed["successor"]["session_id"] = "wrong-session"
+        with self.assertRaisesRegex(BindingError, "successor"):
+            self.loop.workflow.validate_handoff(changed)
+        document = self.loop.documents / "iteration-1-development.md"
+        document.write_text("changed after acceptance", encoding="utf-8")
+        with self.assertRaisesRegex(HarnessError, "artifact differs"):
+            self.loop._consume_handoff(self.loop.workflow.binding(1, "developer"))
+        self.assertEqual(self.adapters["codex"].calls, [])
+
+    def test_changed_workflow_or_deleted_usage_cannot_reset_a_resumed_balance(self):
+        self._phase("planner")
+        self.loop._save_state(1, "iteration_started", self.deadline.path, previous_candidate_sha256=None, no_progress_count=0)
+        changed = deepcopy(self.config)
+        changed["stages"][2]["session_id"] = "replacement-qa-session"
+        with self.assertRaisesRegex(HarnessError, "resume ledger or iteration policy"):
+            self._open(changed)._state()
+        path = self.root / "usage.json"
+        # Preserve the old ledger as fault evidence, then model a lost ledger.
+        path.rename(self.root / "retained-usage-before-loss.json")
+        with self.assertRaisesRegex(HarnessError, "usage ledger is missing"):
+            self._open()._state()
+        with self.assertRaisesRegex(HarnessError, "reservation is missing"):
+            self._open()._verify_workflow_receipts()
+
+    def test_qa_rejects_missing_stale_or_regressed_evidence_even_with_complete_usage(self):
+        self._phase("planner")
+        self._phase("developer")
+        result, _, _, _ = self._phase("qa")
+        for evidence, lost in ((None, ()), (self._evidence(red=True), ()), (self._evidence(), ("previously-passing",))):
+            gate = evaluate_phase(result["_request"], result, iterations=2, candidate_unchanged=True, evidence=evidence, lost_passing=lost)
+            self.assertEqual(gate["decision"], "blocked")
+        stale = deepcopy(result)
+        stale["submission"]["test_evidence_sha256"] = "sha256:" + "0" * 64
+        with self.assertRaises(BindingError):
+            evaluate_phase(result["_request"], stale, iterations=2, candidate_unchanged=True, evidence=self._evidence())
+
+    def test_declared_gate_checks_refuse_missing_sections_invalid_code_and_extra_files(self):
+        planner, _, _, _ = self._phase("planner")
+        changed = deepcopy(planner)
+        changed["output_text"] = "The response finished."
+        changed["output_sha256"] = sha256_bytes(changed["output_text"].encode())
+        gate = evaluate_phase(planner["_request"], changed, iterations=2, candidate_unchanged=True)
+        self.assertEqual(gate["decision"], "blocked")
+        self.assertFalse(gate["checks"]["report_sections"])
+        developer, _, _, _ = self._phase("developer")
+        for source, files, unchanged, reason in (
+            ("def check_tree(:", {"linkcheck.py"}, True, "candidate_syntax"),
+            ("def unrelated(): pass", {"linkcheck.py"}, True, "candidate_syntax"),
+            ("def check_tree(root): pass", {"linkcheck.py", "other.py"}, True, "candidate_file_set"),
+            ("def check_tree(root): pass", {"linkcheck.py"}, False, "candidate_unchanged"),
+        ):
+            gate = evaluate_phase(developer["_request"], developer, iterations=2, candidate_unchanged=unchanged,
+                                  developer_source=source, developer_files=files)
+            self.assertEqual(gate["decision"], "blocked")
+            self.assertIn(reason, gate["reasons"])
+        unknown = deepcopy(developer)
+        unknown["submission"]["decision"] = "probably-complete"
+        with self.assertRaises(ProtocolError):
+            evaluate_phase(developer["_request"], unknown, iterations=2, candidate_unchanged=True)
+
+    def test_no_progress_exhaustion_records_a_blocked_gate_without_a_successor(self):
+        self._phase("planner")
+        self._phase("developer")
+        # Keep the role response but exercise the coordinator's no-progress observation.
+        evidence = self._evidence()
+        view = self._view("qa")
+        candidate = hash_tree(self.project)
+        result = self.loop._role_call("qa", 1, "green output", view, self.deadline, candidate, record_hash(evidence))
+        (self.loop.documents / "iteration-1-evidence.md").write_text(result["output_text"], encoding="utf-8")
+        gate = evaluate_phase(result["_request"], result, iterations=2, candidate_unchanged=True,
+                              evidence=evidence, progress_allowed=False)
+        with self.assertRaisesRegex(HarnessError, "progress_allowed"):
+            self.loop._reject_phase(result, gate, candidate, self.deadline, evidence=evidence)
+        handoff = self.loop.receipts.last_payload["details"]["handoff"]
+        self.assertEqual(handoff["gate"]["decision"], "blocked")
+        self.assertIsNone(handoff["successor"])
+        with self.assertRaisesRegex(HarnessError, "workflow stopped"):
+            self.loop._consume_handoff(self.loop.workflow.binding(2, "planner"))
 
 
 class ClaudeAdapterTests(unittest.TestCase):

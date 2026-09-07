@@ -1,28 +1,151 @@
 # 20c deterministic headless-loop preparation receipt
 
 Evidence-record: 20c
-Date: 2026-09-06. Verification kind: runtime. Result: needs-info. The
-implementation is frozen, and independent source review closed all six findings.
-Habitat runtime acceptance remains held after the strict deadline guard observed
-the wall clock move backward in three final waves.
+Date: 2026-09-07. Verification kind: runtime. Result: needs-info.
 
 ## Result and prerequisite
 
-The twelve implementation files are complete and frozen. Packet 20c remains open
-because Habitat did not provide a nondecreasing wall clock for one complete
-acceptance wave. The Habitat environment maintainer owns this prerequisite.
+The offline coordinator implements the
+[multi-agent phase decision](../design.md#multi-agent-phase-decision-2026-09-06).
+Stages select adapters independently,
+bind distinct assigned agents and native session references, and use declared
+completion gates before handing accepted revisions to the next stage. One
+persisted ledger covers every stage and retry. The workflow configuration owns
+assignments; native integrations retain session creation and enforcement.
 
-The strict guard is part of the packet contract. It rejects backward or uncertain
-clock observations and keeps the original one-hour deadline across resume. No
-accepted change weakens that rule. The final two runs used CPU 0, and the final run
-kept the distro active with a bounded helper. Both still observed a backward step.
-A keepalive and CPU affinity do not establish clock stability.
+Independent source review closed the seven initial findings and one missing-ledger
+follow-up. The author wave and reviewer-requested repeat each passed 18 control
+tests in fresh offline Habitat containers. The reviewer independently checked
+the repeat's source and execution evidence. These tests use doubles for the clock,
+Git checkpoints, oracle observations, and native runtimes. They exercise routing,
+gates, receipt artifacts, usage, and replay on real files. They do not execute
+candidate subprocesses or prove the complete workflow lifecycle.
 
-Packet [20a](../packets/20a-headless-loop-proof.md) retains its separate need for a
-verified pre-admission token bound. This receipt contains no live Claude call,
-runtime authentication proof, or factory acceptance.
+Packet 20c remains `needs-info`. The Habitat environment maintainer must supply a
+wall clock proven nondecreasing across the complete container and subprocess
+acceptance lifecycle. CPU affinity, keepalive activity, and elapsed time have not
+met that prerequisite. The full strict suite was not repeated this session.
+The strict deadline guard and owned-process/oracle implementation are byte-identical
+to the preserved baseline. Runtime acceptance and independent full-suite acceptance
+remain open. Packet 20a also retains its separate enforceable token-budget gate.
 
-## Authority and environment
+## Phase review and control evidence
+
+The [packet](../packets/20c-headless-loop-preparation.md#declared-phase-checks-and-rework-routes)
+defines the exact checks and bounded rework routes before implementation. The
+coordinator persists a dispatch claim before invocation. Repeated claims refuse
+without another reservation or successor call. Resume checks the workflow hash.
+Accepted developer recovery binds the exact pre-transition state, ledger bytes,
+candidate checkpoint, and report hashes. It preserves the original deadline.
+An unbound or ambiguous interrupted stage requires reconciliation.
+
+Review corrections distinguish valid incomplete responses from schema errors,
+block no-progress exhaustion before creating a successor, include the accepted
+developer report in QA, migrate CLI examples to `--workflow` and `--run-id`,
+recover the accepted developer/state-write gap, and revalidate all accepted
+reports during terminal replay. The author repaired the copied test root
+permissions and missing test import. A missing recovery ledger now produces a
+controlled refusal. The full-lifecycle recovery regression remains unrun.
+
+| Wave | Result | Meaning |
+| --- | --- | --- |
+| `control-a` | 8 of 12 passed; 4 errors | Copied fixture root was read-only; fixed. |
+| `control-b` | 18 tests; 11 subcase errors | Missing test-helper import; fixed. |
+| `control-c` | 18 passed in 2.707s | Precedes the missing-ledger review correction. |
+| `control-d` | 18 passed in 2.389s, exit 0 | Final author control evidence. |
+| `control-review-a` | 18 passed in 2.461s, exit 0 | Reviewer-requested repeat; source and evidence independently checked. |
+
+Both final waves ran exactly:
+
+```console
+python3 -B -m unittest -v tools.tests.test_hoh_loop.StageBindingAndHandoffTests
+```
+
+The helper verified the recorded Habitat daemon and pinned image, then checked
+the created container before starting it: unprivileged `ubuntu`, no network,
+read-only root and source, dropped capabilities, no-new-privileges, two CPU quota
+units on CPU 0, 1 GiB memory, and 128 processes. The helper permitted exactly two mounts:
+read-only source and persistent writable `/tmp`, both resolved under the authorized
+task root. There was no credential, Docker socket, or production checkout mount.
+Both containers exited and remain retained. No model call or package install ran.
+
+The delegated repeat launch stalled in the sandbox approval path and returned
+only an aborted-call result after interruption. It produced no execution evidence.
+The parent task launched the single retry through the same escalation boundary;
+the independent reviewer then checked its source, configuration, and result.
+
+## Source and evidence hashes
+
+The final source manifest contains 13 files. Author and reviewer
+manifests are byte-identical with SHA-256 `dd1b6f5d5a6fed6c441932e3a0fb13d0e3121fc826003f48996639a66cc791fa`.
+The reviewed helper SHA-256 is `4f69c1a9ca4228b8f9134ba6a2fe69f09a8dbcc1bc30a90e86e6e00dd5bb7cc9`.
+The independent review record SHA-256 is `8990cd961c403827e2fa32b8dbca0df0f2611adb66b7f29d2c7b54cebd2c2062`.
+
+| Source | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `docs/product/multi-project/fixtures/hoh-loop/linkcheck.py` | 1,122 | `3323e052e3649b9c811c0a685121f0ab73027f1ab87c364b31c8adc0928f96d5` |
+| `docs/product/multi-project/fixtures/hoh-loop/spec.md` | 1,058 | `8a9c239f21e9613fb18d7a813ac3a62e53863d9ba4e777bab6b4090c3ad9b26d` |
+| `docs/product/multi-project/fixtures/hoh-loop/tests/test_links.py` | 4,050 | `4fb90f88091d486cb034f53e41c46f03508e06aedf4478068c7b4e950801dc2d` |
+| `tools/hoh_loop.py` | 95,686 | `3691c8bdaf70c58379ff0c359d16800133e2c95aee18fe8b374d5b37445275b8` |
+| `tools/hoh/__init__.py` | 66 | `0b95447b469c56520f69606b3e57114ac5605a4683ec27cfd4eb2866d643e707` |
+| `tools/hoh/claude.py` | 4,983 | `60fb46370fae88bf16d4fbad2dfe593e6126a340fd7c1119702c1544160e66a7` |
+| `tools/hoh/prompts/developer.md` | 1,149 | `8e13aa84b9ec2af0d150ddd932e6f30b91f23eb6be9567b759ef5c245cbce446` |
+| `tools/hoh/prompts/planner.md` | 1,383 | `5cb41df1a5f6cfcf5b26b86f642f6283c3d5581a4409f93a923310cc6a46b3da` |
+| `tools/hoh/prompts/qa.md` | 1,435 | `db078a57ee0a1d4da87e8c49edb85a09db0370cd3ee5514b85ab0a44cf006943` |
+| `tools/hoh/protocol.py` | 37,872 | `6d033539874c84ab95155c9a052b5d73a41c434085db34754f83e870ae7b0ed2` |
+| `tools/hoh/workflow.py` | 13,097 | `9dfeceab1ee4ce5333efc0c2fb4716d9c9a73c95ca66a7e8c840ee55effa4420` |
+| `tools/tests/hoh_fault_probe.py` | 3,494 | `4c677ec8682052cff65f1370fd9efa6be7810ef34dc92a8470cd1716047ebf4a` |
+| `tools/tests/test_hoh_loop.py` | 99,442 | `c1c33a2e80caaa9b45728063d025d71d546f8e0dad009479f165d325fd03019f` |
+
+The private supplement has 64 entries, including source
+archives, manifests, commands, transfer and test logs, container inspections,
+review findings and closure, and the new resource inventory. Its manifest SHA-256
+is `1d406fd8ac4cfab0093d34f2946b35ab5e7833af3a1bf38f5b38c39197310d4e`; archive SHA-256 is
+`136d9521960e49a441b4760da30d432fcda91b451e23307b22ed42d3776c8fd9`. The export check restored every entry into a fresh private
+directory and compared its path, size, and hash. Exact machine paths remain in the
+existing private handoff. The supplement excludes persistent Habitat test-tree
+contents; those remain in their retained task paths.
+
+The 5 new stopped containers and 10 new
+source/test directories are itemized in the supplement. The historical 41-container
+and 74-path inventories below remain preserved; neither their resources nor this
+session's resources were removed. Cleanup requires explicit itemized approval.
+
+## Resume point and delivery
+
+Document checks passed: the canonical plan renderer and check, tracked-file
+line-ending checks, and diff whitespace validation. The site sync regenerated
+its mirrors without deletion. The site build stopped because the checkout lacks
+Astro: `'astro' is not recognized as an internal or external command`.
+No dependency installation ran. A provisioned documentation-build environment
+must complete that separate release check before publication.
+
+Resume only 20c on `feat/headless-loop-preparation`. Preserve the local phase work
+and owner documentation after `bc6445f`. The current packet, this receipt, and
+the existing private HANDOFF.md own the continuation. Packet 24a stays complete;
+this session claims no next ticket.
+
+First obtain the Habitat maintainer's stable-clock evidence for the complete
+lifecycle. Then verify the immutable integration commit
+`794296f17116179700b27b536099994c78410802` remains an ancestor, match all
+13 source hashes above, and review a fresh full-suite helper derived
+from the retained strict boundary. Use the packet's full discovery command,
+including the new lifecycle recovery regression. Run one author acceptance wave;
+stop on any clock, isolation, source, or test failure. After a pass, a second
+reader independently reruns the same full suite against those bytes.
+
+Only then may 20c's runtime acceptance be marked passed. Keep PR #337 draft until
+the required acceptance exists. Publication and merge retain the explicit gates
+in AGENTS.md and the release workflow. No push, PR mutation, or merge occurred
+this session. Package versions and published releases are unchanged.
+
+## Historical evidence from 2026-09-06
+
+The following evidence covers the earlier twelve-file contract. Its hashes and
+failed clock observations remain preserved; it does not accept the phase work.
+
+### Historical authority and environment
+
 
 The current integration baseline is commit
 `794296f17116179700b27b536099994c78410802`, tree
@@ -204,31 +327,12 @@ Private evidence remains under the authorized Littleagent evidence root and the
 Habitat task root. This public receipt uses aliases for those machine-local
 paths. It does not publish private filesystem coordinates.
 
-## Resume point
+## Historical resume instructions
 
-The Habitat environment maintainer must first provide evidence that the selected
-clock stays nondecreasing across the complete container and subprocess lifecycle.
-A short clean diagnostic, CPU affinity, or keepalive alone is insufficient.
-
-After that prerequisite is met, verify immutable integration commit
-`794296f17116179700b27b536099994c78410802`, tree
-`33bd861cf331bbc64637b7243ee88355cb61cbd5`, as an ancestor of the runnable
-candidate HEAD. Do not check out or reset to that commit: it predates the
-implementation. Bind the runnable candidate to all twelve frozen delivery
-manifest entries, then recheck the pinned image and daemon identity. Record the
-time-service identity and readiness without changing its configuration. Then
-run exactly one fresh wave:
-
-```powershell
-& '<private-evidence-root>\stage-wave.ps1' -Wave 'green-strict-stable-clock1'
-```
-
-The reviewed helper SHA-256 is
+The twelve-file resume recipe from 2026-09-06 is superseded by the current
+resume point above. Its strict helper remains retained with SHA-256
 `5727f1859a13947451d96f83ea53ff2f810f8f287d427b74c095668de6817d32`.
-It includes `--cpuset-cpus 0` and the limits recorded above. Stop on any clock
-discontinuity, source mismatch, isolation change, or test failure. A bounded
-task-owned keepalive may keep Habitat active during the wave, but it does not
-guarantee wall-clock stability.
+Do not run that old source revision as acceptance for the phase requirements.
 
 ## Retained cleanup disposition
 

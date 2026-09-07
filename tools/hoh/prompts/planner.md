@@ -27,3 +27,9 @@ Return only this Markdown structure:
 - Working behavior and evidence that must not regress
 ### Acceptance Gate
 - Smallest end-to-end validation for the selected priorities
+
+The adapter also submits a structured phase decision. Name all four fixture
+requirement IDs from the specification, including preserved behavior. Bind the
+submission to the request's candidate revision. Use `ready` only when every
+required section contains a concrete instruction. Use `blocked` for missing
+inputs. The coordinator evaluates this submission separately from token usage.
