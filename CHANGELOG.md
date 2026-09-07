@@ -37,11 +37,12 @@ patch. Published registry versions remain unchanged.
   handoffs govern planner, developer, and QA transitions. One usage ledger
   survives retries and replay.
 
-  Independent source review and two 18-test control waves passed in offline
-  Habitat. Full lifecycle acceptance remains held by the unresolved clock
-  prerequisite. Live runtime calls also require an
-  enforceable token bound. This is preparation under packet 20c. Native session
-  enforcement, factory integration, and package release remain unaccepted.
+  Independent source review and two full 62-test waves passed in offline
+  Habitat. Regression stops before QA; incomplete, changed, or late evidence
+  records a terminal failure without replaying an agent. The original deadline
+  and shared ledger survive restart. Live runtime calls still require an
+  enforceable token bound. Native session enforcement, factory integration,
+  and package release remain unaccepted.
 - Packet 12a defines trusted root/VCS observations and expected refusal
   oracles for access grants, root replacement, and Git/Jujutsu administration.
   The synthetic registry contract and validator bind private Jujutsu repository

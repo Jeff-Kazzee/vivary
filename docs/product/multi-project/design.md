@@ -8,6 +8,10 @@ This is the canonical program plan. [Execution rules](execution-contract.md), [s
 
 Vivary absorbs the public Littleagent work into one product evolution. The GUI is the primary work environment. Standalone Vivary workspaces and users' favorite runtimes remain supported.
 
+The [audience and setup decision](#approachable-workspace-decision-2026-09-06)
+includes professionals across coding, research, writing, and second brains.
+Vivary helps them accomplish work through an installable workspace and GUI.
+
 The product handles new and existing projects, workspace templates installed within projects, an optional recommended Brain, and learning from verified work. Version control is optional. GitHub, Gitea, Jujutsu, and Beads belong to separate integration choices.
 
 The full little-agent scope survives: visual planning, research, tickets, workers, review, portable handoffs, CLI agents, factory mode, email intake, and heartbeat maintenance. Delivery order does not remove later scope.
@@ -246,3 +250,63 @@ The first usable milestone is one GUI registering two independent projects, adop
 - Concrete agent-readiness protocols required by the live checker. The all-checks 100% target is retained. Real authentication or commerce capabilities may require additional product decisions.
 
 No release date or package version is invented. Publication, remote creation, data migration, and legacy retirement are explicit operations with their own evidence and authority.
+
+
+## Iterative process decision: 2026-09-06
+
+Authority: the owner explicitly requested a bounded process and environment
+maintenance ticket, modest sub-agent use, and discussion between product slices.
+The owner asked to overwrite the original handoff, clean task temporary files,
+keep knowledge searchable through open formats and graph links, and incorporate
+the small maintenance details that prevent documentation and storage buildup.
+
+The [execution contract](execution-contract.md#one-reviewable-iteration) owns this
+repeatable process. Packet [20d](packets/20d-process-environment-maintenance.md)
+applies it once and updates environment prerequisites. This decision authorizes
+task-owned disposable-resource cleanup. The owner also requested dependency
+preparation. After an initially declined prompt, the owner renewed the setup
+permission and the dependency installation and build passed under packet 20d.
+It does not accept unfinished runtime behavior or activate the whole factory.
+
+
+The owner clarified on 2026-09-07 that each claimed ticket proceeds through
+planning, implementation, QA, correction, independent review, and cleanup in
+one flow. Routine phase changes do not require another user instruction.
+Stop for consequential decisions or unresolved authority-bound operations.
+Preserve the existing Markdown/HTML handoff instead of creating phase copies.
+
+## Approachable workspace decision: 2026-09-06
+
+Authority: the owner requested an installable workspace with a GUI that makes a
+disciplined work process usable without programming expertise.
+The owner clarified that Vivary is a tool for accomplishing real work, not an
+educational product. The GUI directs work and presents results and decisions.
+Do not add lessons, tutorials, or teaching flows from this accessibility goal.
+Existing Claude Code and Codex subscriptions are an intended connection journey.
+The desired action is one button to connect an existing coding agent.
+
+Preserve GUI-first and headless-capable use, runtime choice, and the complete agreed
+scope. Show the task, changed result, passing and failing checks, and required
+user judgment first. Keep evidence and technical detail available on demand.
+Authentication, subscription eligibility, available capabilities, and supported
+connection APIs require provider-specific verification. The desired experience
+does not establish automatic sign-in or authorize credential copying.
+
+At task close, inspect evidence for a useful lesson. Amend an existing owning
+instruction, check, or module guide when the evidence supports a reusable change.
+Keep speculation out of accepted learning and avoid creating a document per lesson.
+The existing learning review and project-boundary rules still apply.
+
+
+The owner clarified that developers are only one audience. Vivary serves
+professionals doing coding, research, writing, second-brain work, and other tasks.
+Assume basic ability to install and message an agent, not professional programming
+expertise or prior coding work. Use direct, respectful product language. The website must explain the
+product, setup, supported runtime connections, requirements, and important limits.
+The application focuses on directing work and reviewing results. Website details
+must follow verified capabilities rather than presenting the planned connection
+experience as already implemented.
+
+When owner statements genuinely conflict, name the conflicting requirements and
+the decision they affect. Discuss that conflict before choosing a consequential
+interpretation. An explicit correction updates the existing decision.

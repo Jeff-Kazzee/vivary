@@ -57,3 +57,9 @@ they do not prove the behavior above.
 - 2026-09-07: Packet 20c adds stage assignments, completion gates, durable handoffs,
   and shared usage/replay controls. Its independently reviewed source passed two
   18-test Habitat control waves. Full runtime acceptance awaits a stable clock.
+
+- 2026-09-07: Owner-requested [20d](../packets/20d-process-environment-maintenance.md) repairs process and environment setup independently of 20c runtime acceptance.
+
+- 2026-09-07: 20d completed process cleanup and executed dependency/build checks plus Windows clock repair and a clean Habitat clock preflight. 20c is ready for a strict acceptance attempt. Factory acceptance remains open.
+
+- 2026-09-07: 20c completed the strict offline lifecycle and independent QA, with two 62-test passes and regression/restart corrections. Evidence and cleanup are recorded in its receipt. 20a remains blocked only on its live-call token bound; factory behavior remains unaccepted.

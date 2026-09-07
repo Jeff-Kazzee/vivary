@@ -699,7 +699,7 @@ class HeadlessLoop:
                 ("qa", "incomplete"),
             },
             "iteration_complete": {("qa", "complete")},
-            "regressed": {("qa", "regressed")},
+            "regressed": {("test", "regressed")},
             "failed": {("iteration", "failed"), ("test", "incomplete"),
                        ("planner", "failed"), ("developer", "failed"), ("qa", "failed")},
             "final_complete": {("iteration", "complete")},
@@ -1503,14 +1503,23 @@ class HeadlessLoop:
                 healthy_frozen_hash_before = hash_tree(healthy_freeze)
                 healthy_result = run_product_tests(healthy_freeze, deadline=deadline)
                 healthy_frozen_hash_after = hash_tree(healthy_freeze)
-                if healthy_frozen_hash_after != healthy_frozen_hash_before:
+                healthy_project_hash_after = hash_tree(self.project)
+                healthy_changed = (
+                    healthy_frozen_hash_after != healthy_frozen_hash_before
+                    or healthy_project_hash_after != healthy_hash
+                )
+                if healthy_changed or not healthy_result["oracle_complete"]:
                     self._append(
                         iteration,
                         "test",
                         "incomplete",
-                        healthy_hash,
+                        healthy_project_hash_after,
                         {
-                            "observation": "frozen-candidate-changed-during-oracle",
+                            "observation": (
+                                "pre-regression-candidate-changed-during-oracle"
+                                if healthy_changed else "pre-regression-oracle-incomplete"
+                            ),
+                            "output": healthy_result["output"],
                             "output_sha256": sha256_bytes(
                                 healthy_result["output"].encode("utf-8")
                             ),
@@ -1526,9 +1535,10 @@ class HeadlessLoop:
                         previous_candidate_sha256=previous_hash,
                         no_progress_count=no_progress,
                     )
-                    raise HarnessError("frozen candidate changed during oracle execution")
-                if not healthy_result["oracle_complete"]:
-                    raise HarnessError("pre-regression oracle execution was incomplete")
+                    raise HarnessError(
+                        "candidate changed during oracle execution"
+                        if healthy_changed else "pre-regression oracle execution was incomplete"
+                    )
                 healthy_passing = set(healthy_result["passed_test_ids"])
                 previous_passing.update(healthy_passing)
                 healthy_frozen_hash = healthy_frozen_hash_after
@@ -1580,14 +1590,20 @@ class HeadlessLoop:
             frozen_hash_before = hash_tree(frozen)
             test_result = run_product_tests(frozen, deadline=deadline)
             frozen_hash_after_test = hash_tree(frozen)
-            if frozen_hash_after_test != frozen_hash_before:
+            project_hash_after_test = hash_tree(self.project)
+            if frozen_hash_after_test != frozen_hash_before or project_hash_after_test != after:
                 self._append(
                     iteration,
                     "test",
                     "incomplete",
-                    after,
+                    project_hash_after_test,
                     {
-                        "observation": "frozen-candidate-changed-during-oracle",
+                        "project_candidate_before_sha256": after,
+                        "observation": (
+                            "frozen-candidate-changed-during-oracle"
+                            if frozen_hash_after_test != frozen_hash_before
+                            else "project-candidate-changed-during-oracle"
+                        ),
                         "output_sha256": sha256_bytes(test_result["output"].encode("utf-8")),
                         "process_evidence": process_evidence(test_result),
                     },
@@ -1601,7 +1617,7 @@ class HeadlessLoop:
                     previous_candidate_sha256=previous_hash,
                     no_progress_count=no_progress,
                 )
-                raise HarnessError("frozen candidate changed during oracle execution")
+                raise HarnessError("candidate changed during oracle execution")
             self._verify_fixed_inputs()
             test_output_hash = sha256_bytes(test_result["output"].encode("utf-8"))
             observations = sorted(set(_FAILED_TEST.findall(test_result["output"])))
@@ -1627,7 +1643,7 @@ class HeadlessLoop:
             self._append(
                 iteration,
                 "test",
-                "regressed" if lost_passing else "complete" if evidence["complete"] else "incomplete",
+                "incomplete" if not evidence["complete"] else "regressed" if lost_passing else "complete",
                 after,
                 {
                     "evidence": evidence,
@@ -1635,6 +1651,7 @@ class HeadlessLoop:
                     "process_evidence": process_evidence(test_result),
                     "passed_test_ids": sorted(passing),
                     "lost_passing_test_ids": lost_passing,
+                    "healthy_candidate_sha256": healthy_hash,
                 },
                 frozen_candidate_sha256=frozen_hash_before,
             )
@@ -1647,6 +1664,38 @@ class HeadlessLoop:
                     no_progress_count=no_progress,
                 )
                 raise HarnessError("fixed oracle did not execute every declared test exactly once")
+            if lost_passing:
+                try:
+                    deadline.remaining()
+                except DeadlineError:
+                    self._append(
+                        iteration, "test", "incomplete", after,
+                        {"observation": "deadline-expired-before-regression-stop", "evidence": evidence},
+                        frozen_candidate_sha256=frozen_hash_before,
+                    )
+                    self._save_state(
+                        iteration, "failed", deadline_path,
+                        previous_candidate_sha256=previous_hash,
+                        no_progress_count=no_progress,
+                    )
+                    raise
+                self._save_state(
+                    iteration,
+                    "regressed",
+                    deadline_path,
+                    previous_candidate_sha256=previous_hash,
+                    no_progress_count=no_progress,
+                )
+                return {
+                    "status": "regressed",
+                    "iteration": iteration,
+                    "healthy_candidate_sha256": healthy_hash,
+                    "injected_candidate_sha256": after,
+                    "observations": observations,
+                    "lost_passing_test_ids": lost_passing,
+                }
+            if fault.regress_before_qa is not None:
+                raise HarnessError("regression injection did not lose previously passing behavior")
             qa_view = self._new_view(
                 "qa",
                 iteration,
@@ -1677,7 +1726,6 @@ class HeadlessLoop:
             qa_report_path = self.documents / f"iteration-{iteration}-evidence.md"
             qa_report_path.write_text(qa["output_text"], encoding="utf-8")
             frozen_hash_after = hash_tree(frozen)
-            regressed = bool(lost_passing)
             prospective_no_progress = no_progress + 1 if previous_hash == after else 0
             qa_gate = evaluate_phase(
                 qa["_request"], qa, iterations=self.iterations,
@@ -1685,14 +1733,12 @@ class HeadlessLoop:
                 evidence=evidence, lost_passing=tuple(lost_passing),
                 progress_allowed=prospective_no_progress < 2,
             )
-            if qa_gate["decision"] == "blocked" and not regressed:
+            if qa_gate["decision"] == "blocked":
                 self._reject_phase(qa, qa_gate, after, deadline, evidence=evidence)
-            if fault.regress_before_qa is not None and not regressed:
-                raise HarnessError("regression injection did not lose previously passing behavior")
             self._append(
                 iteration,
                 "qa",
-                "regressed" if regressed else "complete",
+                "complete",
                 after,
                 {
                     **self._phase_details(qa, qa_gate, after, evidence=evidence),
@@ -1706,22 +1752,6 @@ class HeadlessLoop:
                 frozen_candidate_after_sha256=frozen_hash_after,
                 assembled_prompt_sha256=sha256_bytes(qa_prompt.encode("utf-8")),
             )
-            if regressed:
-                self._save_state(
-                    iteration,
-                    "regressed",
-                    deadline_path,
-                    previous_candidate_sha256=previous_hash,
-                    no_progress_count=no_progress,
-                )
-                return {
-                    "status": "regressed",
-                    "iteration": iteration,
-                    "healthy_candidate_sha256": healthy_hash,
-                    "injected_candidate_sha256": after,
-                    "observations": observations,
-                    "lost_passing_test_ids": lost_passing,
-                }
             no_progress = prospective_no_progress
             previous_hash = after
             previous_passing.update(passing)

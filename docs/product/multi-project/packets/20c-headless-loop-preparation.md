@@ -1,13 +1,21 @@
 # 20c: Prepare the deterministic headless loop proof
 Type: packet
 Parent: 20
-Status: needs-info
+Status: done
 Depends-on: [10c]
-Owner: Codex 20c session on 2026-09-07, sole writer
-Needs: A Habitat wall clock proven nondecreasing across one complete container and subprocess acceptance lifecycle, supplied by the Habitat environment maintainer. CPU affinity and continuous distro activity did not prevent backward steps; do not rerun the strict candidate until this environment prerequisite is met.
+Owner: Codex 20c completion session on 2026-09-07, sole writer with independent QA
 Scope: Offline fixture, prompts, protocol, sequencer, Claude adapter test seam, and adversarial tests; no coding-runtime or model call.
 Verification-kind: runtime
-Timebox: One context window. Stop after the offline Habitat evidence and closure records are complete.
+Evidence: [Preparation receipt](../receipts/20c-headless-loop-preparation.md)
+Verification-result: passed
+Timebox: One bounded ticket through tests, fixes, independent QA, evidence, and cleanup. Checkpoint across context windows without treating a phase boundary as completion.
+
+## Accepted offline preparation
+
+The [preparation receipt](../receipts/20c-headless-loop-preparation.md) records
+two fresh strict 62-test passes, independent source/evidence review, and the
+regression corrections. The full offline lifecycle is accepted. Native model
+calls and their enforceable token bound remain the separate 20a prerequisite.
 
 ## Goal
 
@@ -16,8 +24,8 @@ Create and verify every deterministic input and control needed by
 on a verified whole-invocation token bound. The frozen draft is a reviewed
 baseline under the earlier contract. The owner's
 [multi-agent phase decision](../design.md#multi-agent-phase-decision-2026-09-06)
-adds the implementation gaps below. Runtime acceptance also requires a stable
-Habitat clock; the earlier test results do not accept these added requirements.
+adds the implementation gaps below. The strict Habitat clock checks passed in both final acceptance runs.
+Earlier control-only test results remain historical evidence.
 
 ## Required phase and handoff changes
 
@@ -28,8 +36,8 @@ developer, and QA fixture is the bounded proof. Offline cases cover mixed
 adapter routing, refused phase completion, wrong agent/session/runtime binding,
 and a repeated accepted handoff that dispatches no second successor. Keep usage
 accounting shared across stages. Native adapter and session enforcement remain
-live-runtime proof; test doubles do not establish them. Source work can proceed
-independently while the clock prerequisite holds executable Habitat acceptance.
+live-runtime proof; test doubles do not establish them. The final strict suite accepts the offline implementation; native integration
+claims still require their own runtime evidence.
 
 ## Declared phase checks and rework routes
 
@@ -47,14 +55,14 @@ request routing and binding checks only.
 | Phase | Required checks | Accepted route | Rejected route |
 | --- | --- | --- | --- |
 | Planner | Complete response and usage, exact request and identity, all four fixture requirement IDs, nonempty priority, preservation, and acceptance sections, unchanged candidate | Developer receives the accepted development document and its revision | Block this attempt. No developer call |
-| Developer | Complete response and usage, exact identity, nonempty changes and validation sections, only `linkcheck.py` writable, valid Python with a `check_tree` function, fixed inputs unchanged, committed candidate | QA receives the accepted development document, developer report, and candidate checkpoint. The coordinator runs the fixed oracle before QA | Block this attempt. No QA call or candidate export for a rejected submission |
+| Developer | Complete response and usage, exact identity, nonempty changes and validation sections, only `linkcheck.py` writable, valid Python with a `check_tree` function, fixed inputs unchanged, committed candidate | QA receives the accepted development document, developer report, and candidate checkpoint. The coordinator runs the fixed oracle before QA and stops immediately on regression or incomplete evidence | Block this attempt. No QA call or candidate export for a rejected submission |
 | QA | Complete response and usage, exact identity, all four requirement IDs, explicit `ready`, `rework`, or `blocked` verdict bound to candidate and deterministic evidence hashes, nonempty status/evidence/gaps/next-action sections, frozen candidate unchanged | Green plus `ready` advances to the next iteration, or completes the final iteration | Known red plus `rework`, or a green candidate needing review rework, returns to the next planner while iterations remain. Regression, missing evidence, contradictory verdict, explicit block, or exhausted rework stops acceptance |
 
 The existing configured iteration limit bounds rework. Two consecutive
 iterations without candidate progress also stop. There is no hidden quality
 threshold or freeform completion inference. These mechanical planner/developer
-checks do not establish semantic correctness. QA's explicit review is required,
-and the fixed oracle independently constrains its verdict.
+checks do not establish semantic correctness. QA's explicit review is required for an accepted iteration. A deterministic
+regression or incomplete oracle stops before QA and retains the test evidence.
 
 Each request carries its stage binding, invocation attempt, consumed handoff
 hash, and QA evidence hash when applicable. Response/usage completeness and the
@@ -76,8 +84,8 @@ document and report hash, including final QA with no successor.
 New tests that exercise only these deterministic decisions may run by exact
 test class in the same offline Habitat boundary. They do not run candidate
 subprocesses or relax the production clock guard. Record this narrow evidence
-separately. The complete strict suite and independent runtime acceptance remain
-held until the recorded clock prerequisite changes meaningfully.
+separately. The final strict suite and independent offline runtime acceptance passed.
+The receipt distinguishes these results from the earlier control-only checks.
 
 ## Context
 
@@ -143,18 +151,16 @@ packet, so their initial absence is not a prerequisite failure.
   index and graph, update `CHANGELOG.md`, and run the approved canonical sync
   for its generated changelog and `llms-full.txt` mirrors.
 
-Keep captured output and the source manifest under the verified preserved
-Littleagent checkout's `.tmp/hoh-proof/20c/`. Apply 20a's separate ignore and
-resolved-containment checks to every actual output and temporary filename
-before writing; refuse existing files. Record source-bundle and writable test
-paths privately. Retain each stopped task container and its test tree after
-verification. After independent acceptance and a restore-and-hash check of the
-exported evidence, the 20c owner prepares an itemized cleanup receipt and asks
-for approval for each container or path removal. Record stopped-process
-evidence, exact targets, archive hashes, owner, and a review-by date seven days
-after closure. Keep pending removals visible at the next handoff; schedule no
-job. Archives remain inputs for 20a and follow its later retention contract.
-Private evidence and source bundles are not product source.
+Keep captured output and source hashes under the existing private 20c evidence
+root. Verify ignore status and resolved containment before writing each output.
+Retain stopped containers and test trees until their evidence has been exported
+and independently checked. The owner's 2026-09-07 continuation instruction
+authorizes cleanup of exact task-owned disposable resources after verified export.
+Record names, IDs, contained paths, and removals in the existing cleanup receipt.
+Keep the minimum unresolved failure reproduction and one final evidence export.
+No per-container continuation question is needed within that authority.
+Keep the existing handoff and its generated HTML current. Do not create phase
+handoffs, duplicate plans, or a new continuation document per attempt.
 
 ## Done condition
 
@@ -226,7 +232,12 @@ Private evidence and source bundles are not product source.
 
 Use the existing host Python for source and plan inspection only. Tests that
 execute mutable candidates run inside the offline Habitat boundary below.
-Before creating the task container, verify the installed image without pulling:
+Before creating the task container, keep a bounded foreground Habitat process
+alive through startup time synchronization, a strict clock preflight, the suite,
+and evidence capture. Verify NTPSynchronized before the preflight. Short separate
+WSL commands can restart the distro and trigger a backward startup correction.
+Do not disable time synchronization or relax the deadline guard. Stop the owned
+foreground hold after evidence capture. Then verify the installed image without pulling:
 
 ```console
 docker image inspect sha256:ffdba5d54dd6f91875fa60fc15103b6b30bb23ecaaf2d8ed65559d3cdff05bee
@@ -260,8 +271,9 @@ Docker socket mount. Do not create a token broker, daemon, database, queue, or
 fallback accounting service. Stop if the source bundle is writable, its hashes
 differ from the reviewed candidate, the container boundary differs from the
 recorded command, or a deterministic adversarial check fails.
-Use no `--rm`, automatic source/test-tree deletion, or cleanup job. Stop only
-task-owned processes after tests; keep removal pending until explicit approval.
+Use no `--rm` before evidence capture and independent acceptance. Stop only
+task-owned processes after tests. Cleanup follows the exact authorized scope
+and verified export above. Do not create a cleanup job or prune unrelated work.
 
 20c closure proves preparation only. Actual role-tool authority, authenticated
 CLI behavior, provider network path, credential isolation, OS enforcement,
@@ -299,3 +311,5 @@ this packet, and do not mark 20a done from deterministic evidence.
   remains blocked on the existing clock prerequisite. See the refreshed receipt
   for exact scope, source hashes, retained resources, and resume point. No next
   ticket, live call, push, or merge was claimed.
+
+- 2026-09-07: Completed strict offline acceptance: 62 tests passed in each of two fresh containers, all independent findings fixed, evidence exported and authorized task resources cleaned. Live 20a retains its token-bound prerequisite.

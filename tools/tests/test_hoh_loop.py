@@ -1366,7 +1366,165 @@ class SequencerTests(unittest.TestCase):
             "test_links.LinkCheckTests.test_ignores_anchor_only_target",
             result["lost_passing_test_ids"],
         )
-        self.assertEqual(adapter.calls[-1], (2, "qa"))
+        self.assertEqual(adapter.calls[-1], (2, "developer"))
+        self.assertNotIn((2, "qa"), adapter.calls)
+        ledger = UsageLedger(self.root / "ordinary-regression-usage.json", packet_budget=1000).snapshot()
+        self.assertNotIn("ordinary-regression-2-qa-1", ledger["reservations"])
+        receipts = [
+            json.loads(path.read_text(encoding="utf-8"))["payload"]
+            for path in sorted((self.root / "ordinary-regression-receipts/details").glob("*.json"))
+        ]
+        terminal = receipts[-1]
+        self.assertEqual((terminal["stage"], terminal["status"]), ("test", "regressed"))
+        self.assertEqual(terminal["details"]["lost_passing_test_ids"], result["lost_passing_test_ids"])
+        self.assertEqual(terminal["details"]["healthy_candidate_sha256"], result["healthy_candidate_sha256"])
+        self.assertEqual(
+            terminal["details"]["evidence"]["candidate_sha256"],
+            terminal["bindings"]["frozen_candidate_sha256"],
+        )
+        self.assertNotIn("handoff", terminal["details"])
+
+    def test_partial_oracle_after_prior_green_is_incomplete_and_terminal(self) -> None:
+        project = self._project("partial-later-project")
+        project.joinpath("linkcheck.py").write_text(
+            DeterministicRoleAdapter._source_for_iteration(3), encoding="utf-8"
+        )
+        adapter = OrdinaryRegressionAdapter()
+
+        def partial_later(candidate, **kwargs):
+            result = run_product_tests(candidate, **kwargs)
+            if candidate.name == "iteration-2":
+                result["oracle_complete"] = False
+                result["passed_test_ids"] = []
+            return result
+
+        with patch("hoh_loop.run_product_tests", side_effect=partial_later):
+            with self.assertRaisesRegex(HarnessError, "did not execute every declared test"):
+                self._loop("partial-later", project, adapter, iterations=2).run()
+
+        receipts = self.root / "partial-later-receipts"
+        terminal = json.loads(sorted((receipts / "details").glob("*.json"))[-1].read_text())["payload"]
+        self.assertEqual((terminal["stage"], terminal["status"]), ("test", "incomplete"))
+        self.assertFalse(terminal["details"]["evidence"]["complete"])
+        self.assertTrue(terminal["details"]["lost_passing_test_ids"])
+        self.assertIn("output", terminal["details"])
+        self.assertEqual(json.loads((receipts / "state.json").read_text())["stage"], "failed")
+        self.assertNotIn((2, "qa"), adapter.calls)
+        ledger = self.root / "partial-later-usage.json"
+        original_ledger = ledger.read_bytes()
+        self.assertNotIn("partial-later-2-qa-1", json.loads(original_ledger)["reservations"])
+        reopened = OrdinaryRegressionAdapter()
+        with self.assertRaisesRegex(HarnessError, "terminal failed run"):
+            self._loop("partial-later", project, reopened, iterations=2).run()
+        self.assertEqual(reopened.calls, [])
+        self.assertEqual(ledger.read_bytes(), original_ledger)
+
+    def test_regression_refuses_project_changed_during_oracle(self) -> None:
+        project = self._project("moving-regression-project")
+        project.joinpath("linkcheck.py").write_text(
+            DeterministicRoleAdapter._source_for_iteration(3), encoding="utf-8"
+        )
+        adapter = OrdinaryRegressionAdapter()
+
+        def mutate_later(candidate, **kwargs):
+            result = run_product_tests(candidate, **kwargs)
+            if candidate.name == "iteration-2":
+                with project.joinpath("linkcheck.py").open("a", encoding="utf-8") as handle:
+                    handle.write("# concurrent project change\n")
+            return result
+
+        with patch("hoh_loop.run_product_tests", side_effect=mutate_later):
+            with self.assertRaisesRegex(HarnessError, "candidate changed during oracle execution"):
+                self._loop("moving-regression", project, adapter, iterations=2).run()
+
+        receipts = self.root / "moving-regression-receipts"
+        terminal = json.loads(sorted((receipts / "details").glob("*.json"))[-1].read_text())["payload"]
+        self.assertEqual((terminal["stage"], terminal["status"]), ("test", "incomplete"))
+        self.assertEqual(terminal["details"]["observation"], "project-candidate-changed-during-oracle")
+        self.assertEqual(terminal["bindings"]["candidate_sha256"], hash_tree(project))
+        self.assertNotEqual(terminal["details"]["project_candidate_before_sha256"], hash_tree(project))
+        self.assertNotIn((2, "qa"), adapter.calls)
+        reopened = OrdinaryRegressionAdapter()
+        with self.assertRaisesRegex(HarnessError, "terminal failed run"):
+            self._loop("moving-regression", project, reopened, iterations=2).run()
+        self.assertEqual(reopened.calls, [])
+
+    def test_incomplete_pre_regression_oracle_stops_before_injection_and_qa(self) -> None:
+        project = self._project("pre-regression-partial-project")
+        project.joinpath("linkcheck.py").write_text(
+            DeterministicRoleAdapter._source_for_iteration(3), encoding="utf-8"
+        )
+        adapter = DeterministicRoleAdapter(completed_developer=True)
+        injections = []
+
+        def partial(candidate, **kwargs):
+            result = run_product_tests(candidate, **kwargs)
+            if candidate.name.endswith("pre-regression"):
+                result["oracle_complete"] = False
+            return result
+
+        with patch("hoh_loop.run_product_tests", side_effect=partial):
+            with self.assertRaisesRegex(HarnessError, "pre-regression oracle execution was incomplete"):
+                self._loop("pre-regression-partial", project, adapter).run(
+                    RunFault(regress_before_qa=lambda candidate: injections.append(candidate))
+                )
+        self.assertEqual(injections, [])
+        self.assertEqual(adapter.calls, [(1, "planner"), (1, "developer")])
+        receipts = self.root / "pre-regression-partial-receipts"
+        terminal = json.loads(sorted((receipts / "details").glob("*.json"))[-1].read_text())["payload"]
+        self.assertEqual((terminal["stage"], terminal["status"]), ("test", "incomplete"))
+        self.assertEqual(terminal["details"]["observation"], "pre-regression-oracle-incomplete")
+        self.assertIn("process_evidence", terminal["details"])
+        ledger = self.root / "pre-regression-partial-usage.json"
+        original_ledger = ledger.read_bytes()
+        deadline_path = receipts / "iteration-1-deadline.json"
+        original_deadline = deadline_path.read_bytes()
+        reopened = DeterministicRoleAdapter(completed_developer=True)
+        with self.assertRaisesRegex(HarnessError, "terminal failed run"):
+            self._loop("pre-regression-partial", project, reopened).run()
+        self.assertEqual(reopened.calls, [])
+        self.assertEqual(ledger.read_bytes(), original_ledger)
+        self.assertEqual(deadline_path.read_bytes(), original_deadline)
+
+    def test_regression_deadline_expiry_after_receipt_stops_without_qa(self) -> None:
+        project = self._project("late-regression-project")
+        project.joinpath("linkcheck.py").write_text(
+            DeterministicRoleAdapter._source_for_iteration(3), encoding="utf-8"
+        )
+        adapter = OrdinaryRegressionAdapter()
+        loop = self._loop("late-regression", project, adapter, iterations=2)
+        original_append = loop._append
+        original_remaining = IterationDeadline.remaining
+        expired = False
+
+        def append_then_expire(iteration, stage, status, *args, **kwargs):
+            nonlocal expired
+            result = original_append(iteration, stage, status, *args, **kwargs)
+            if (stage, status) == ("test", "regressed"):
+                expired = True
+            return result
+
+        def remaining(deadline):
+            if expired:
+                raise DeadlineError("test expiry after regression receipt")
+            return original_remaining(deadline)
+
+        with patch.object(loop, "_append", side_effect=append_then_expire):
+            with patch.object(IterationDeadline, "remaining", remaining):
+                with self.assertRaisesRegex(DeadlineError, "test expiry"):
+                    loop.run()
+
+        receipts = self.root / "late-regression-receipts"
+        terminal = json.loads(sorted((receipts / "details").glob("*.json"))[-1].read_text())["payload"]
+        self.assertEqual((terminal["stage"], terminal["status"]), ("test", "incomplete"))
+        self.assertEqual(terminal["details"]["observation"], "deadline-expired-before-regression-stop")
+        self.assertNotIn((2, "qa"), adapter.calls)
+        original_expiry = json.loads((receipts / "iteration-2-deadline.json").read_text())["expires_unix_ns"]
+        reopened = OrdinaryRegressionAdapter()
+        with self.assertRaisesRegex(HarnessError, "terminal failed run"):
+            self._loop("late-regression", project, reopened, iterations=2).run()
+        self.assertEqual(reopened.calls, [])
+        self.assertEqual(json.loads((receipts / "iteration-2-deadline.json").read_text())["expires_unix_ns"], original_expiry)
 
     def test_fixed_inputs_are_rechecked_after_each_role_before_settlement(self) -> None:
         project = self._project("fixed-input-project")
@@ -1507,6 +1665,9 @@ class SequencerTests(unittest.TestCase):
             RunFault(regress_before_qa=inject)
         )
         self.assertEqual(result["status"], "regressed")
+        self.assertEqual(first_adapter.calls, [(1, "planner"), (1, "developer")])
+        ledger_path = self.root / "terminal-regression-usage.json"
+        ledger_before = ledger_path.read_bytes()
         receipts = self.root / "terminal-regression-receipts"
         for derived in (receipts / "role-views", receipts / "role-receipt-projections"):
             derived.rename(receipts / f"retained-{derived.name}")
@@ -1515,6 +1676,7 @@ class SequencerTests(unittest.TestCase):
         with self.assertRaisesRegex(HarnessError, "terminal regressed run"):
             self._loop("terminal-regression", project, reopened_adapter).run()
         self.assertEqual(reopened_adapter.calls, [])
+        self.assertEqual(ledger_path.read_bytes(), ledger_before)
 
     def test_resume_refuses_changed_or_missing_ledger_and_changed_policy(self) -> None:
         project, receipts, ledger = self._interrupted_after_developer("resume-ledger-missing")
@@ -1673,6 +1835,20 @@ class SequencerTests(unittest.TestCase):
         self.assertEqual((project / "spec.md").read_bytes(), spec_before)
         self.assertEqual(hash_tree(project / "tests"), oracle_before)
         self.assertEqual(hash_tree(self.prompts), prompts_before)
+        self.assertEqual(adapter.calls, [(1, "planner"), (1, "developer")])
+        ledger = UsageLedger(self.root / "regression-usage.json", packet_budget=1000).snapshot()
+        self.assertNotIn("regression-1-qa-1", ledger["reservations"])
+        receipts = [
+            json.loads(path.read_text(encoding="utf-8"))["payload"]
+            for path in sorted((self.root / "regression-receipts/details").glob("*.json"))
+        ]
+        self.assertFalse(any(receipt["stage"] == "qa" for receipt in receipts))
+        self.assertEqual((receipts[-1]["stage"], receipts[-1]["status"]), ("test", "regressed"))
+        self.assertNotIn("handoff", receipts[-1]["details"])
+        healthy = self.root / "regression-receipts/frozen/iteration-1-pre-regression"
+        healthy_receipt = next(receipt for receipt in receipts if receipt["details"].get("fault_checkpoint") == "pre-regression")
+        self.assertEqual(hash_tree(healthy), healthy_receipt["bindings"]["frozen_candidate_sha256"])
+        self.assertEqual(healthy_receipt["bindings"]["candidate_sha256"], result["healthy_candidate_sha256"])
 
     def test_self_mutating_candidate_stops_before_test_receipt_acceptance_and_qa(self) -> None:
         project = self._project("self-mutating-project")

@@ -35,12 +35,10 @@ are in the paper's PDF appendix A.2 (arXiv 2609.01481v1, pages 22 to 25). The
 HTML omits them. The Fusepoint repository (`Flesymeb/fusepoint`, branch
 `gameloop`, `.gameloop/receipts/`) supplies the reference record shapes.
 
-Packet 20c adds per-stage bindings and explicit acceptance to the preserved
-draft. Its [preparation receipt](../receipts/20c-headless-loop-preparation.md)
-separates new source/control evidence from historical verification. The complete
-strict Habitat suite and independent runtime acceptance remain open because
-the clock prerequisite is unresolved. Packet 20a cannot start through that
-dependency and retains its separate pre-admission token-bound prerequisite.
+Packet 20c's [accepted preparation receipt](../receipts/20c-headless-loop-preparation.md)
+records per-stage bindings, explicit acceptance, and two independently checked
+62-test strict offline passes. Its dependency is complete. Packet 20a retains
+the separate pre-admission token-bound prerequisite above.
 The [workflow input contract](20c-headless-loop-preparation.md#workflow-input)
 defines the required configuration files for the commands below. Bind native
 session references before starting a run. Prove the selected adapter creates
