@@ -228,9 +228,8 @@ If the answer to #4 or #5 is yes, use the simpler method.
 
 ## Current Vivary focus
 
-The immediate goal is not to perfect packet 06e's verification machinery.
-
-The immediate goal is:
+Use [the program frontier](docs/product/multi-project/index.md) to find the
+current packet. The product goal is:
 
 **Make multi-project Vivary genuinely usable through the real application.**
 
