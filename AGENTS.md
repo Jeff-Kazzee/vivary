@@ -1,141 +1,61 @@
-# AGENTS.md — Vivary runtime contract
+# Vivary agent instructions
 
-The contract for **any** agent working in this repo (Claude Code, Codex CLI, …).
-Lean by law — depth lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Read it
-once; don't reload it every turn.
+Read [ENGINEERING.md](ENGINEERING.md). It is the governing engineering policy.
+Older packet and runtime instructions cannot restore heavier process defaults.
 
-## Product direction and entry
+## Start with the product
 
-Start at [the current frontier](docs/product/multi-project/index.md). That lean,
-generated index routes to the active packet, full graph, and program design only
-when they are needed. The owner decided on 2026-09-05
-that Vivary absorbs the full Littleagent scope. The GUI is primary; standalone
-workspaces, runtime choice, optional version control, templates, and optional
-Brain learning remain supported. Ticket status owns the current frontier. Use the bounded, verified Habitat environment named by the packet. On 2026-09-05
-the owner confirmed BrowserPod is unavailable, superseding its earlier selection.
-Keep BrowserPod setup and execution out of the active task list. Preserve each
-packet's isolation, credential, spending, and cleanup limits.
-Read [execution rules](docs/product/multi-project/execution-contract.md). The 36
-records are outcome contracts; agents claim bounded lettered packets from the
-generated graph. Keep the graph, owning packet, evidence, and next task current
-after each unit. Older issue priorities do not override this program.
-The existing standard and scaffolder remain the shipped baseline; the program
-does not turn planned application features into release claims.
+Read [the current frontier](docs/product/multi-project/index.md) and the owning
+packet. [The execution contract](docs/product/multi-project/execution-contract.md)
+owns program metadata and delivery details. Choose the next observable user
+capability and implement one coherent slice through the real application.
 
-## Design law (non-negotiable)
+Use the workspace and execution environment authorized for the task. Reuse the
+current checkout and handoff when provided. Inspect live Git and preserve dirty
+work before editing. Keep one writer per shared file.
 
-**Minimalism.** Every always-on file competes with the user's task for context. A
-layer or file that is expensive to load is *wrong*. Fewer files, fewer words, more
-room for the work. This file obeys its own law — keep it that way.
+Use existing implementations and tests. Run the cheapest relevant checks,
+exercise the actual application, fix failures, and review the diff.
+Use another reviewer when the risk or complexity warrants it.
 
-**DRY + progressive disclosure.** One fact gets one owner. Root contracts and
-`index.md` files route; deeper files carry detail. Do not duplicate durable truth
-across README/docs/templates/skills when a link will do. Choose the next source
-from [the program frontier](docs/product/multi-project/index.md) or the owning
-package README. Use `tropo graph` and module indexes when the selected source
-tree configures them. When work crosses root observation, project identity,
-native runtime, or project write-back, start at the bounded
-[source map](docs/product/multi-project/source-map/index.md).
+Before unusually heavy work, check memory and disk. Keep one heavy job active,
+bound runaway processes, and clean up task-owned servers, browsers, and children.
+Normal tests need ordinary timeouts and cleanup.
 
-## The operating loop (per turn)
+Invoke [high-assurance mode](docs/verification/high-assurance-mode.md) only for a
+named dangerous failure. Select controls for that risk.
 
-`Ask → retrieve → act → verify → learn → gate.` State known / inferred / unknown
-and confirm before guessing. Do one verified slice at a time.
+## Delivery and authority
 
-## Loops — a tool to recommend, not a default
+Follow [CONTRIBUTING.md](CONTRIBUTING.md). Branch from current remote `dev`,
+use a typed topic branch, and integrate through a PR with the required CI and
+review gates. Never push directly to protected `dev` or legacy `prod`.
 
-Default to a single focused pass. When a task is repeatable, long-running, or
-unattended, *consider recommending* a loop (a program that prompts the agent and
-decides whether to continue) rather than reaching for one by default. Judging fit
-and setting one up safely lives in the **loops skill**
-(`.claude/skills/loops/`).
+Make small, coherent, reviewed commits. Preserve unrelated work, accepted
+evidence, and historical budgets. Keep private handoffs, credentials, transcripts,
+and machine-specific continuity notes outside public source and Git history.
+Private source hosting does not establish agent-session capture.
 
-If you do run a loop: it must self-verify each tick and have hard stops (max
-iterations, no-progress detection, budget ceiling), and it still **stops at the
-hard gates (below)** — autonomy inside the work, alignment at the edges.
+Use the user's existing authorization. Complete reversible preparation before
+requesting any missing approval for merges, publication, account changes,
+paid calls, scheduled activation, outbound messages, or destructive actions.
+A material scope or authority change needs alignment before that action.
+Do not modify the read-only source repositories loam, braincheck, throughline,
+or flywheel.
 
-## 🚦 Hard gates — STOP and get the human
+Follow [the release workflow](docs/RELEASE-WORKFLOW.md) when release operations
+apply. Source implementation and passing tests do not establish publication.
+[README.md](README.md#release-status) owns shipped behavior.
 
-These are not optional and are not batchable. One explicit human approval per item.
+## Keep knowledge useful
 
-1. **Plan + alignment before merge** (see below) — no branch merges without it.
-2. **Publishing / outward actions** — npm or PyPI publish, GitHub org/repo
-   creation, `push`, opening a PR. Each, explicitly, per item.
-3. **Destructive ops** — delete, force-push, history rewrite.
-4. **The four source repos are read-only** — loam, braincheck, throughline,
-   flywheel. Copy from them; never modify them.
+Use the [source map](docs/product/multi-project/source-map/index.md) when work
+crosses project identity, root custody, runtime, or project writes.
+Read [the architecture](docs/ARCHITECTURE.md) when a design decision needs it.
+Reuse existing Native owners and installed dependencies. Review relevant
+deny-lists and advisories before adding packages.
 
-## Plan + alignment before merge
-
-**Human and agent must be aligned — in writing — before anything merges.** Before
-merging a branch or landing a substantial change, produce a written plan and get
-explicit human approval. The plan states:
-
-1. **Intent** — what changes and why; which layer/module and how it serves the
-   baseline thesis.
-2. **Blast radius** — everything it touches: files, packages, the knowledge graph,
-   downstream layers. (Use tropo's `graph`/`blast` and `ozone impact`.)
-3. **Verification** — how we'll know it's right: tests, checks, a sandbox run.
-4. **Out of scope** — what this deliberately does *not* do.
-5. **Alignment** — "I think I know / I am inferring / I do not know — confirm or
-   correct." The human confirms or corrects.
-
-No merge until the human has approved the plan **and** the delivered change matches
-it. If the work diverged from the approved plan, re-align before merging — don't
-merge and explain after.
-
-*How* you produce the plan is runtime-specific; your runtime overlay names the
-mechanism (for Claude Code, see CLAUDE.md → "ultraplan").
-
-## Constraints
-
-- **Branch rules (enforced).** `dev` is the protected integration branch — **no direct
-  pushes**. Every change lands via a feature branch cut from `dev` → PR → merge, with
-  the `ci` checks + the `ozone review` gate green first. `dev` blocks force-push and
-  deletion. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch and legacy-branch policy.
-- **No nested git repos.** Vivary is one repo; packages are plain subdirectories.
-- **Supply chain.** Before any install, check `~/dev/agents/.shared/deny-list-npm.json`
-  and run `npm`/`pnpm audit`. Vet new dependencies; prefer pinned pre-compromise
-  versions.
-- **Platform.** Windows / PowerShell (`$null`, never `nul`; bash also available).
-  `tropo` needs Python 3.11+ (stdlib `tomllib`).
-- **CI runs free** on the public `vivary-dev/vivary` repo (Actions is free for public
-  repos): `.github/workflows/ci.yml` runs every package suite + parity + `tropo check` +
-  a cross-platform (Ubuntu/Windows) orientation proof on every PR/push. The
-  `ozone review --strict` graph review gate runs only for pull requests. The site build
-  runs only when `site/`, canonical `docs/`, `README.md`, `CHANGELOG.md`, or its CI
-  definition changes. Verify locally too; the local suite is fast.
-- **Docs stay in sync.** Update the affected canonical docs in the same change as a
-  behavior, command, flag, or structure change. Long-form behavior docs live in
-  `docs/`. [README release status](README.md#release-status) owns current version and
-  publication truth. Package READMEs should link to that status rather than copy it.
-  The website under `site/` is generated from canonical docs. Do not edit mirrors
-  directly. The approved release step runs the canonical sync. Private handoffs and
-  agent-to-Jeff continuity notes stay in ignored local storage or the Second Brain,
-  never in the public repo.
-- **Every update ends with release truth.** Follow
-  [docs/RELEASE-WORKFLOW.md](docs/RELEASE-WORKFLOW.md) for release-gated work. Update
-  the changelog and canonical docs before the approved site sync. Verify install
-  surfaces only after publication. Keep launch and social posts in ignored local
-  storage or the Second Brain, not the public repo.
-
-## Verify
-
-```bash
-python packages/tropo/tests/test_tropo.py                  # 193/193
-python packages/ozone/tests/test_ozone.py                  # 110/110
-python packages/exo/tests/test_exo.py                      # 30/30
-python packages/create-vivary/tests/test_create_vivary.py  # OK (exit 0)
-python -m pytest packages/core/tests/ -q                   # 799 + 1 skip Linux; Windows count from CI
-python -m pytest packages/strato/tests/ -q                 # 48/48
-python packages/vivary/tests/test_command_surface_characterization.py  # 3/3
-python packages/vivary/tests/test_vivary_cli.py            # 9/9
-python packages/vivary/tests/test_vivary_router.py         # 38/38
-python scripts/tests/test_installed_route_parity.py        # 29/29
-python packages/tropo/tropo.py check --root packages/tropo/examples/vault   # clean
-```
-
-Current release and publication status lives in [README.md's release-status
-section](README.md#release-status). [CHANGELOG.md](CHANGELOG.md) records the scope of
-each development line. Do not infer publication from a source version. Full guides
-live in [docs/](docs/).
+Update durable docs when behavior, architecture, contracts, or lasting
+constraints change. Give each fact one owner and refresh generated views when
+their inputs change. Keep the existing handoff concise. Failed or unrun
+verification remains incomplete regardless of a policy change.
