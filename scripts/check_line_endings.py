@@ -32,8 +32,6 @@ CRLF_ALLOWED_EXTENSIONS = {
 LEGACY_LINE_ENDING_ALLOWLIST = {
     "packages/create-vivary/create_vivary_assets/__init__.py",
     "packages/tropo/examples/vault/projects/tropo/decisions/0001-folder-as-type.md",
-    "site/package-lock.json",
-    "site/package.json",
     "site/src/pages/index.astro",
 }
 
