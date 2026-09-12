@@ -26,6 +26,11 @@ patch. Published registry versions remain unchanged.
 
 ### Added
 
+- The governing engineering policy makes working user capabilities the default
+  unit of progress. Agent instructions and the program execution contract now
+  use relevant checks and actual application exercises, with optional
+  high-assurance controls for named dangerous failures.
+
 - A bounded product source map now routes four cross-cutting responsibilities to
   canonical contracts, implementation, tests, and accepted evidence through Tropo
   typed edges. Runtime packet policy and registry authorization prerequisites remain

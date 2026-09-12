@@ -37,8 +37,9 @@ and machine-specific continuity notes outside public source and Git history.
 Private source hosting does not establish agent-session capture.
 
 Use the user's existing authorization. Complete reversible preparation before
-requesting any missing approval for merges, publication, account changes,
-paid calls, scheduled activation, outbound messages, or destructive actions.
+requesting any missing approval for pushes, PR creation, merges, publication,
+account changes, paid calls, scheduled activation, outbound messages, or
+destructive actions.
 A material scope or authority change needs alignment before that action.
 Do not modify the read-only source repositories loam, braincheck, throughline,
 or flywheel.

@@ -1,8 +1,8 @@
 # Vivary decisions
 
 This is a compact index, not a second specification. Follow the first link in each
-entry for the canonical detail. Decisions and evidence links were reviewed on
-**2026-08-09**.
+entry for the canonical detail. The initial decisions and evidence links were
+reviewed on **2026-08-09**. Later decisions carry their approval date.
 
 - [**D-001 — Named trains coordinate independent package semvers.**](RELEASE-WORKFLOW.md#train-and-version-lifecycle)
   **Vivary Governed Context** is a release label, not a suite version. Packages bump only when their
@@ -30,6 +30,12 @@ entry for the canonical detail. Decisions and evidence links were reviewed on
 - [**D-006 — Canonical source docs own truth; generated site pages are mirrors.**](RELEASE-WORKFLOW.md#3-keep-docs-and-site-in-sync)
   Behavior, migration, and release facts change in their named canonical owner first.
   Site synchronization happens only in the approved release workflow.
+
+- [**D-007 — Product engineering is the default.**](https://github.com/vivary-dev/vivary/blob/dev/ENGINEERING.md)
+  Jeff approved this policy on **2026-09-12**. Implement a coherent user capability,
+  run relevant checks, exercise the real app, fix failures, and commit. Invoke
+  [high-assurance mode](https://github.com/vivary-dev/vivary/blob/dev/docs/verification/high-assurance-mode.md) for a named dangerous
+  failure. Preserve existing evidence, budgets, and specific external-action authority.
 
 For a new hard-to-reverse choice, add a focused ADR beside the affected spec and link
 it here. Use [MIGRATION-STATUS.md](MIGRATION-STATUS.md) for changing maturity status,
