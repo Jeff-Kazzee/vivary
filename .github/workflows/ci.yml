@@ -88,7 +88,7 @@ jobs:
       - uses: actions/checkout@v7.0.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - uses: actions/setup-node@v6
@@ -665,7 +665,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: source navigation contract on Windows
@@ -803,7 +803,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - uses: actions/setup-node@v6
@@ -837,7 +837,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: mkdir -p sandboxes
