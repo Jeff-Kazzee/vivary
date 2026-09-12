@@ -1,45 +1,24 @@
-# CLAUDE.md
+# Claude Code instructions
 
-**Read [AGENTS.md](AGENTS.md) first — it is the contract for every agent and it
-governs you.** This file only adds Claude Code specifics. Starting fresh? Begin
-from [the tracked program](docs/product/multi-project/design.md) and
-[its ticket graph](docs/product/multi-project/graph.md).
+Read [AGENTS.md](AGENTS.md) and its governing [engineering policy](ENGINEERING.md).
+This file adds only Claude Code behavior. Older workflow preferences cannot
+restore heavier verification defaults.
 
-## Ultraplan — how Claude satisfies the plan+alignment gate
+## Merge alignment
 
-AGENTS.md requires a written, human-approved plan before any merge (runtime-
-agnostic). **Ultraplan is Claude's mechanism for it** — it lives here, not in
-AGENTS.md. It maps to **plan mode**:
+Before a merge that needs approval, prepare the concrete change, relevant
+verification, remaining risks, and the requested merge action. Use plan mode
+when it helps make a substantial design reviewable. Do not require a separate
+plan approval before routine authorized implementation, tests, or retries.
+Specific merge approval still applies. If scope changes materially, explain the
+change before the gated action.
 
-- For any substantial change or branch you intend to merge, **enter plan mode**,
-  build the ultraplan (intent · blast radius · verification · out-of-scope ·
-  alignment), and present it via **ExitPlanMode for explicit approval _before_
-  implementing or merging.**
-- Do not merge on implied approval. "Looks good" on the work ≠ approval of the
-  plan. The human signs off on the plan; the merge follows the signed-off plan.
-- If the implementation drifts from the approved plan, stop and re-align — present
-  the delta and get approval again. Never merge-then-explain.
-- For large or risky changes, you may use a planning subagent / the Plan agent to
-  draft the ultraplan, but the human approval gate is the same.
+## Optional tools
 
-## Loops
+Use planning subagents, loops, and additional reviewers when they justify their
+cost for the actual work. They are not default phases. Preserve stop conditions
+for expensive or dangerous jobs and all external-action gates.
 
-Loops are a recommend-when-it-fits tool, not a default. The **loops skill**
-(`.claude/skills/loops/`) covers when to recommend one and how to set it up with
-Claude's mechanisms (`/loop`, `/goal`, dynamic workflows, cloud + auto-mode).
-Always self-verify and cap; a loop still stops at the hard gates.
-
-## Skills & docs
-
-`tropo` ships an agent skill at
-[packages/tropo/.claude/skills/tropo/SKILL.md](packages/tropo/.claude/skills/tropo/SKILL.md)
-(drives the graph CLI); `strato` and `loops` ship with generated workspaces. Full
-reference — every command, skill, how-to, and FAQ — lives in
-[docs/](docs/) ([SKILLS](docs/SKILLS.md) · [COMMANDS](docs/COMMANDS.md) ·
-[HOWTO](docs/HOWTO.md) · [FAQ](docs/FAQ.md)). Current release truth lives in
-[README.md](README.md) and [CHANGELOG.md](CHANGELOG.md).
-
-## Keep it lean
-
-This file and AGENTS.md are always-on. Honor the minimalism law — if you're
-tempted to add process here, put the depth in `docs/` and link it instead.
+The [skills index](docs/SKILLS.md) and [command reference](docs/COMMANDS.md)
+route to optional tools. [README.md](README.md#release-status) owns release truth.
+Keep this file lean and put durable product decisions in their existing owner.
