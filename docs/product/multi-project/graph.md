@@ -9,7 +9,7 @@ The 36 numbered outcomes preserve the complete product. Their dependencies
 gate completion. Agents execute bounded packets; a future feature or release
 decision does not block an independent packet. Packet dependencies gate starts.
 
-Frontier: none.
+Frontier: 06f.
 In progress: none.
 
 ## Execution packets
@@ -21,10 +21,12 @@ In progress: none.
 | [03a: Define the portable registry contract and acceptance fixtures](packets/03a-project-registry-contract.md) | 03 | done | [] |
 | [03b: Execute the portable registry contract against a deterministic model](packets/03b-registry-contract-model.md) | 03 | done | [03a, 10c] |
 | [03c: Map registry transactions to native application seams](packets/03c-registry-transaction-mapping.md) | 03 | done | [03b] |
+| [06f: Integrate the working Workbench into canonical Vivary](packets/06f-workbench-source-integration.md) | 06 | ready-for-agent | [03c, 12h] |
 | [10a: Establish the BrowserPod compatibility boundary](packets/10a-browserpod-compatibility-preflight.md) | 10 | done | [] |
 | [10b: Prove the first BrowserPod toolchain on a disposable fixture](packets/10b-browserpod-toolchain-proof.md) | 10 | needs-info | [10a] |
 | [10c: Prove the authorized Habitat fallback toolchain](packets/10c-habitat-fallback-proof.md) | 10 | done | [10a] |
 | [12a: Define the trusted root and VCS observation boundary](packets/12a-root-vcs-observation-contract.md) | 12 | done | [03c] |
+| [12h: Integrate project root custody into canonical Vivary](packets/12h-core-root-custody-integration.md) | 12 | done | [12a] |
 | [20a: Prove the Claude Code headless loop on files](packets/20a-headless-loop-proof.md) | 20 | needs-info | [10c, 20c] |
 | [20c: Prepare the deterministic headless loop proof](packets/20c-headless-loop-preparation.md) | 20 | done | [10c] |
 | [20d: Repair the environment and simplify the development process](packets/20d-process-environment-maintenance.md) | 20 | done | [10c] |
@@ -45,7 +47,7 @@ In progress: none.
 | [09: Preserve standalone and headless operation parity](tickets/09-preserve-headless-parity.md) | planned | [04, 07, 08] |
 | [10: Complete native runtime proof from S-00A](tickets/10-prove-native-runtime.md) | in-progress | [04] |
 | [11: Finish files, drafts, and conflict-safe editing](tickets/11-finish-workspace-editor.md) | planned | [05, 06, 08] |
-| [12: Implement none, Git, and Jujutsu identity adapters](tickets/12-implement-vcs-identity-adapters.md) | planned | [03, 06] |
+| [12: Implement none, Git, and Jujutsu identity adapters](tickets/12-implement-vcs-identity-adapters.md) | in-progress | [03, 06] |
 | [13: Connect optional repository hosts](tickets/13-connect-repository-hosts.md) | planned | [07, 12] |
 | [14: Integrate optional task sources without mirroring ownership](tickets/14-integrate-task-sources.md) | planned | [03, 12] |
 | [15: Deliver editable plans and dependency-aware kanban](tickets/15-deliver-plans-and-kanban.md) | planned | [05, 12, 14] |

@@ -1,6 +1,6 @@
 # 12: Implement none, Git, and Jujutsu identity adapters
 Type: outcome
-Status: planned
+Status: in-progress
 Blocked-by: [03, 06]
 Unlocks: [13, 14, 15, 16, 17, 29]
 
@@ -31,13 +31,11 @@ they do not prove the behavior above.
 
 ## Next packet
 
-[12a](../packets/12a-root-vcs-observation-contract.md) completed its independently
-reviewed observation contract and expected oracles. Its
-[receipt](../receipts/12a-root-vcs-observation-contract.md#later-implementation-session)
-names the later implementation session and its prerequisites. Prepare that bounded
-packet in a later session after reading the generated frontier. No 12b was created
-in 12a. Physical identity, production integration, and cross-process mutation
-enforcement remain unproved. This parent outcome stays open.
+[12h](../packets/12h-core-root-custody-integration.md) integrates the existing
+Linux root custody implementation into canonical Vivary. Its
+[receipt](../receipts/12h-core-root-custody-integration.md) owns source review and
+focused verification. Root recovery, Jujutsu, and mutation fencing remain open;
+this integration does not complete the parent outcome.
 
 ## Log
 
@@ -47,3 +45,6 @@ enforcement remain unproved. This parent outcome stays open.
   expected fixtures after independent review. No adapter implementation or
   physical fixture execution occurred. Required inspection checks passed.
   The receipt retains a separate Windows planning-test newline failure.
+
+- 2026-09-12: Began canonical integration of the reviewed Linux root observer,
+  lifecycle owner, and private provider under packet 12h.

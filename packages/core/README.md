@@ -218,3 +218,25 @@ The current platform-specific proof is **771 tests on Windows**. On Linux, it is
 observation, capsules, receipts, the Strato/Ozone/Exo/Bellamente role-policy surfaces,
 corruption handling, real-git evidence-store round trips, and byte-exact cross-runtime
 fixtures.
+
+## Project root custody (unreleased)
+
+The Workbench source integration uses three internal Core modules:
+
+- `physical_observe` holds Linux filesystem descriptors and checks bounded
+  folder content, aliases, and Git administration without modifying the project.
+- `root_identity_lifecycle` owns application root records and live identity
+  verification. Stored IDs survive restart; authority does not. Lost custody
+  requires reconciliation before a project can become available again.
+- `root_provider_stdio` runs that owner in a private Python process. Trusted
+  startup supplies the folder inventory once. Requests use location references;
+  caller paths and authority fields are refused.
+
+The provider supports no-VCS folders, Git repositories, nested project folders,
+and linked worktrees on supported local Linux filesystems. Windows, v9fs,
+Jujutsu, unsupported layouts, and lost identity continuity refuse verification.
+This interface does not authorize project writes or provide a mutation fence.
+
+See [the integration receipt](../../docs/product/multi-project/receipts/12h-core-root-custody-integration.md)
+for the focused checks and limits. These additions are unreleased source; package
+versions and published installation behavior have not changed.

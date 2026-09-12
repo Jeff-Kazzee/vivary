@@ -13,8 +13,9 @@ evidence_refs: [observation-receipt]
 ## Outcome ownership
 
 Outcome [12](../../../tickets/12-implement-vcs-identity-adapters.md) owns VCS
-observation and mutation-owner adapters. Packet 12a established this bounded
-observer contract and its continuation guidance.
+observation and mutation-owner adapters. Packet 12a established the contract.
+[Packet 12h](../../../packets/12h-core-root-custody-integration.md) integrates the
+Linux application custody modules and their focused tests.
 
 ## Caller-visible contract and errors
 
@@ -24,9 +25,10 @@ inaccessible, invalid, or non-repository root without losing successful siblings
 
 ## Hidden concerns
 
-Core owns bounded path normalization, Git topology probing, stable ordering, and
-error capture. Its existing graph identities derive from paths and topology; they do
-not satisfy 12a's trusted directory-incarnation identity or mutation reservation.
+The existing checkout graph uses path and topology identities. The application
+custody modules instead hold Linux filesystem descriptors and revalidate folder
+and Git administration continuity. Application identity records are durable;
+verification remains tied to the owning process. Neither path grants write authority.
 
 ## Dependencies
 
@@ -36,6 +38,7 @@ typed graph edges.
 
 ## Gaps
 
-The current Core observer accepts configured roots, but it does not implement the
-trusted physical-root and VCS observation contract required for mutation admission.
-That adapter remains proposed and absent, including for explicitly configured roots.
+Core now contains the read-only Linux custody implementation described in the
+[Core README](../../../../../../packages/core/README.md#project-root-custody-unreleased).
+Usable root recovery after restart, cross-process mutation fencing, Jujutsu,
+Windows custody, and supported persistent deployment storage remain open.
